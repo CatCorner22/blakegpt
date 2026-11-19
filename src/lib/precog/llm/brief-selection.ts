@@ -46,9 +46,11 @@ export function parseBriefSelection(text: string, claims: readonly BriefClaim[])
 }
 
 /**
- * The selection protocol as a JSON schema: version 1, at most three distinct
- * ids drawn from these claims, nothing else. A server that enforces it while
- * decoding returns only what parseBriefSelection accepts.
+ * The selection protocol as a JSON schema: version 1, at most three ids drawn
+ * from these claims, nothing else. It uses only keywords every common grammar
+ * engine implements (vLLM rejects uniqueItems); the parser rejects duplicates.
+ * A server that enforces it while decoding returns only what
+ * parseBriefSelection accepts.
  */
 export function briefSelectionSchema(claims: readonly BriefClaim[]): {
   name: string;
@@ -64,7 +66,6 @@ export function briefSelectionSchema(claims: readonly BriefClaim[]): {
           type: "array",
           items: { type: "string", enum: claims.map((claim) => claim.id) },
           maxItems: 3,
-          uniqueItems: true,
         },
       },
       required: ["version", "highlightIds"],

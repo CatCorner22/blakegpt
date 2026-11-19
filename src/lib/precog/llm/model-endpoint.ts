@@ -11,7 +11,12 @@ export interface ModelEndpoint {
   apiKey: string;
   timeoutMs: number;
   provider: "xai" | "openai-compatible";
+  /** The structured output to ask for first; see responseFormats. */
+  responseFormat: ResponseFormatMode;
 }
+
+export type ResponseFormatMode = "json_schema" | "json_object" | "none";
+const RESPONSE_FORMATS: readonly ResponseFormatMode[] = ["json_schema", "json_object", "none"];
 
 const XAI_BASE_URL = "https://api.x.ai/v1";
 const XAI_MODEL = "grok-4.5";
@@ -33,7 +38,14 @@ export function modelEndpoint(
         ? Math.min(timeout, MAX_TIMEOUT_MS)
         : DEFAULT_TIMEOUT_MS,
     provider: custom ? "openai-compatible" : "xai",
+    responseFormat: responseFormatMode(env.PRECOG_LLM_RESPONSE_FORMAT, custom),
   };
+}
+
+function responseFormatMode(value: string | undefined, custom: boolean): ResponseFormatMode {
+  const mode = value?.trim().toLowerCase() as ResponseFormatMode | undefined;
+  if (mode && RESPONSE_FORMATS.includes(mode)) return mode;
+  return custom ? "json_schema" : "json_object";
 }
 
 /** The key the configured endpoint needs; empty means the coach stays on its rules answer. */

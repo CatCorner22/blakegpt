@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { modelEndpoint } from "./model-endpoint";
-import { grokChat } from "./grok-client.server";
+import { grokChat, responseFormats } from "./grok-client.server";
 import { briefSelectionSchema, parseBriefSelection } from "./brief-selection";
 
 describe("modelEndpoint", () => {
@@ -11,6 +11,7 @@ describe("modelEndpoint", () => {
       apiKey: "xai-k",
       timeoutMs: 20_000,
       provider: "xai",
+      responseFormat: "json_object",
     });
   });
 
@@ -28,6 +29,7 @@ describe("modelEndpoint", () => {
       apiKey: "local-key",
       timeoutMs: 45_000,
       provider: "openai-compatible",
+      responseFormat: "json_schema",
     });
   });
 
@@ -157,5 +159,88 @@ describe("structured output", () => {
     expect(parseBriefSelection('{"version":1,"highlightIds":["situation"]}', claims)).toEqual([
       "situation",
     ]);
+  });
+});
+
+describe("platforms that support less structured output", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const schema = { name: "s", schema: { type: "object" } };
+
+  it("tries the schema, then json_object, then no format", () => {
+    expect(responseFormats({ jsonObject: true, jsonSchema: schema }, "json_schema")).toEqual([
+      { type: "json_schema", json_schema: { name: "s", strict: true, schema: schema.schema } },
+      { type: "json_object" },
+      undefined,
+    ]);
+    expect(responseFormats({ jsonObject: true, jsonSchema: schema }, "json_object")).toEqual([
+      { type: "json_object" },
+      undefined,
+    ]);
+    expect(responseFormats({ jsonObject: true }, "none")).toEqual([undefined]);
+    expect(responseFormats({}, "json_schema")).toEqual([undefined]);
+  });
+
+  it("reads PRECOG_LLM_RESPONSE_FORMAT and ignores an unknown value", () => {
+    const base = { PRECOG_LLM_BASE_URL: "http://x/v1" };
+    expect(modelEndpoint({ ...base, PRECOG_LLM_RESPONSE_FORMAT: "NONE" }).responseFormat).toBe(
+      "none",
+    );
+    expect(modelEndpoint({ ...base, PRECOG_LLM_RESPONSE_FORMAT: "xml" }).responseFormat).toBe(
+      "json_schema",
+    );
+  });
+
+  it("retries a 400 with the next format and answers", async () => {
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://gpu-box:8000/v1");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("Grammar error: Unimplemented keys", { status: 400 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const outcomes: string[] = [];
+
+    const result = await grokChat("k", {
+      messages: [{ role: "user", content: "hi" }],
+      maxTokens: 10,
+      temperature: 0,
+      jsonObject: true,
+      jsonSchema: schema,
+      onUsage: (line) => outcomes.push(line.outcome),
+    });
+
+    expect(result?.text).toBe("{}");
+    expect(outcomes).toEqual(["http_400", "ok"]);
+    const formats = fetchMock.mock.calls.map(
+      ([, init]) => JSON.parse(String((init as RequestInit).body)).response_format?.type,
+    );
+    expect(formats).toEqual(["json_schema", "json_object"]);
+    log.mockRestore();
+  });
+
+  it("does not retry an authorization failure", async () => {
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://gpu-box:8000/v1");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(new Response("no", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      grokChat("k", {
+        messages: [{ role: "user", content: "hi" }],
+        maxTokens: 10,
+        temperature: 0,
+        jsonObject: true,
+        jsonSchema: schema,
+      }),
+    ).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    log.mockRestore();
   });
 });
