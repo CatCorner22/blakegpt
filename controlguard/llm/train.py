@@ -59,10 +59,12 @@ def train(config: Fields, data: Path, output: Path) -> None:
     spec = ModelSpec(string(config.get("repo"), "repo"), string(config.get("revision"), "revision"))
     spec.validate()
     mode = string(config.get("mode"), "mode")
-    if mode not in {"cpu-lora", "gpu-qlora"}:
-        raise ValueError("Use cpu-lora or gpu-qlora.")
+    if mode not in {"cpu-lora", "gpu-qlora", "unsloth-qlora"}:
+        raise ValueError("Use cpu-lora, gpu-qlora or unsloth-qlora.")
     steps = integer(config.get("steps"), "steps", range(1, 100_001))
     eval_limit = integer(config.get("eval_limit", 4), "eval_limit", range(1, 513))
+    max_length = integer(config.get("max_length", 2048), "max_length", range(256, 8193))
+    fast = import_module("unsloth").FastLanguageModel if mode == "unsloth-qlora" else None
     hubs = import_module("huggingface_hub")
     torch = import_module("torch")
     transformers = import_module("transformers")
@@ -72,24 +74,37 @@ def train(config: Fields, data: Path, output: Path) -> None:
     cpu = mode == "cpu-lora"
     if not cpu and not torch.cuda.is_available():
         raise ValueError("GPU QLoRA needs a CUDA device.")
+    if fast is not None and torch.cuda.get_device_capability(0) < (7, 0):
+        raise ValueError("Unsloth needs compute capability 7.0 or higher. Select T4, not P100.")
+    bf16 = not cpu and torch.cuda.get_device_capability(0)[0] >= 8
+    dtype = torch.float32 if cpu else torch.bfloat16 if bf16 else torch.float16
     if cpu:
         torch.set_num_threads(min(8, os.cpu_count() or 1))
     snapshot = Path(hubs.snapshot_download(repo_id=spec.repo, revision=spec.revision,
                                           allow_patterns=["*.safetensors", "*.json", "*.txt"]))
     verify_snapshot(snapshot)
-    tokenizer = transformers.AutoTokenizer.from_pretrained(str(snapshot), trust_remote_code=False,
-                                                          local_files_only=True)
+    options: dict[str, Any] = {"trust_remote_code": False, "use_safetensors": True, "local_files_only": True,
+                               "dtype": dtype}
+    if fast is not None:
+        model, tokenizer = fast.from_pretrained(
+            model_name=str(snapshot), max_seq_length=max_length, load_in_4bit=True, full_finetuning=False,
+            use_exact_model_name=True, device_map={"": 0}, **options,
+        )
+        if not getattr(model, "is_loaded_in_4bit", False):
+            raise ValueError("Unsloth did not load the base model in 4-bit mode.")
+        fast.for_inference(model)
+    else:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(str(snapshot), trust_remote_code=False,
+                                                              local_files_only=True)
+        if not cpu:
+            options.update(device_map={"": 0}, quantization_config=transformers.BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=dtype))
+        model = transformers.AutoModelForCausalLM.from_pretrained(str(snapshot), **options)
+        if not cpu:
+            model = peft.prepare_model_for_kbit_training(model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    options: dict[str, Any] = {"trust_remote_code": False, "use_safetensors": True, "local_files_only": True,
-                               "dtype": torch.float32 if cpu else torch.bfloat16}
-    if not cpu:
-        options.update(device_map={"": 0}, quantization_config=transformers.BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.bfloat16))
-    model = transformers.AutoModelForCausalLM.from_pretrained(str(snapshot), **options)
-    if not cpu:
-        model = peft.prepare_model_for_kbit_training(model)
     training = load_rows(data / f"{adapter}-train.jsonl")
     heldout = load_rows(data / f"{adapter}-eval.jsonl")[:eval_limit]
     if not training or not heldout:
@@ -99,20 +114,32 @@ def train(config: Fields, data: Path, output: Path) -> None:
     print(encode({"before": measure(heldout, before)}), flush=True)
     dataset = datasets.Dataset.from_list([{"prompt": prompt_for(tokenizer, row),
                                            "completion": completion_for(row)} for row in training])
-    lora = peft.LoraConfig(r=8 if cpu else 32, lora_alpha=16 if cpu else 64,
-                           target_modules=["q_proj", "v_proj"] if cpu else "all-linear", task_type="CAUSAL_LM")
+    lora = None
+    if fast is not None:
+        model = fast.get_peft_model(
+            model, r=16, lora_alpha=16, lora_dropout=0, bias="none",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            use_gradient_checkpointing="unsloth", random_state=42,
+        )
+        fast.for_training(model)
+    else:
+        lora = peft.LoraConfig(r=8 if cpu else 32, lora_alpha=16 if cpu else 64,
+                               target_modules=["q_proj", "v_proj"] if cpu else "all-linear", task_type="CAUSAL_LM")
     params = trl.SFTConfig(
         output_dir=str(output / "trainer"), max_steps=steps, per_device_train_batch_size=1,
         gradient_accumulation_steps=1 if cpu else 8, completion_only_loss=True,
         learning_rate=3e-4 if cpu else 1e-4, logging_steps=1 if cpu else 10,
-        max_length=2048, save_strategy="no", report_to="none", use_cpu=cpu, bf16=not cpu,
-        gradient_checkpointing=not cpu, lr_scheduler_type="constant", seed=42,
+        max_length=max_length, save_strategy="no", report_to="none", use_cpu=cpu, bf16=bf16,
+        fp16=not cpu and not bf16, gradient_checkpointing=not cpu and fast is None,
+        lr_scheduler_type="constant", seed=42,
     )
     trainer = trl.SFTTrainer(model=model, args=params, train_dataset=dataset, peft_config=lora,
                              processing_class=tokenizer)
     trainer.train()
     trainer.model.save_pretrained(str(output / "adapter"), safe_serialization=True)
     tokenizer.save_pretrained(str(output / "adapter"))
+    if fast is not None:
+        fast.for_inference(trainer.model)
     after = predictions(trainer.model, tokenizer, torch, heldout)
     for tag, values in (("before", before), ("after", after)):
         (output / f"{tag}.jsonl").write_text(

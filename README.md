@@ -72,6 +72,25 @@ Use the Qwen3-0.6B configs for CPU smoke tests. The trainer saves safetensors Lo
 
 The GPU configs target Qwen3-8B and Qwen3-32B. The trainer pins each base revision, blocks models outside the allowlist, verifies safetensors header bounds and offsets, and checks the chat template against a reviewed hash and blocked tokens. It uses neither remote code nor pickle weights. Use the synthetic generator, not unreviewed third-party corpora.
 
+### Colab Pro and Kaggle
+
+**Colab Pro:** Open [`llm/colab/train_adapters.ipynb`](llm/colab/train_adapters.ipynb) as a notebook. Start with Qwen3-8B on an L4 or A100. For 32B, select an A100 with at least 40 GB. Pick A1, A2 or both in **Training settings**. The notebook uses Unsloth 4-bit QLoRA and trains the adapters in separate processes. It writes safetensors, predictions and metrics to `My Drive/ControlGuard-Adapters/<base>/<adapter>/` by default. Run eight evaluation examples and 40 training steps per adapter to start. GPU availability and Colab compute-unit charges depend on the session.
+
+The notebook embeds the project source and generates synthetic JSONL locally. For an uploaded or cloned checkout, set `project_folder` to its root. To reuse data, upload the `a1-train.jsonl`, `a1-eval.jsonl`, `a2-train.jsonl` and `a2-eval.jsonl` files you need, and set `dataset_folder` to their directory. Do not upload company or employee records.
+
+**Free alternative:** [`kaggle/train_adapters.ipynb`](kaggle/train_adapters.ipynb) targets one 16 GB T4 and uses the same 8B recipe, subject to Kaggle's free quota and current accelerator availability. Do not choose a P100. Unsloth requires a newer CUDA compute capability. The bundle includes private kernel metadata. Use the source and quota limits in your account. This command stages a private notebook version without starting a run:
+
+```sh
+python -m scripts.training_notebooks --kaggle-owner YOUR_KAGGLE_USERNAME
+kaggle kernels push -p kaggle --no-run
+```
+
+The notebooks compile and stop at the expected GPU check on CPU. This delivery did not run either notebook on a GPU.
+
+**Rented 32B fallback:** On Vast.ai or RunPod, choose one 48 GB RTX A6000 or L40S for more memory than a 40 GB card. Plan for at least 100 GB of disk and a compatible CUDA image. Copy the repo and synthetic data to the rental, install the notebook's dependencies, and use `python -m controlguard.llm.train llm-config/qwen32b-a1.json --data DATA --output OUTPUT` (or `qwen32b-a2.json`) for the standard QLoRA path. To use Unsloth, set the config's `mode` to `unsloth-qlora` and `max_length` to 1024. Start with one adapter and few steps. Copy its outputs before terminating the rental. Rates and persistent storage costs vary; no rental ran here.
+
+### Optional Hugging Face Jobs recipe
+
 Preview a single Qwen3-8B job without spending:
 
 ```sh

@@ -49,14 +49,14 @@ with TemporaryDirectory() as temp:
 '''
 
 
-def bundle() -> str:
+def bundle(config_glob: str = "qwen8b-*.json") -> str:
     source = sorted((ROOT / "controlguard").rglob("*.py"))
     source += sorted((ROOT / "controlguard").glob("*.json"))
-    source += sorted((ROOT / "llm-config").glob("qwen8b-*.json"))
+    source += sorted((ROOT / "llm-config").glob(config_glob))
     buffer = BytesIO()
     with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
         for path in source:
-            archive.write(path, path.relative_to(ROOT))
+            archive.writestr(path.relative_to(ROOT).as_posix(), path.read_bytes())
     return b64encode(buffer.getvalue()).decode("ascii")
 
 
