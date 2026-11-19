@@ -25,6 +25,10 @@ def test_digits_rule_and_exceptions() -> None:
 def test_leading_digit_rule() -> None:
     assert "R-LEADING-DIGIT" in rules("30 days apply.")
     assert "R-LEADING-DIGIT" not in rules("The 30-day period applies.")
+    assert "R-LEADING-DIGIT" not in rules("1. Numbered item.")
+    assert "R-LEADING-DIGIT" not in rules("(a) Lettered item.")
+    assert "R-LEADING-DIGIT" in rules("1. 30 days apply.")
+    assert "R-LEADING-DIGIT" in rules("(a) 30 days apply.")
 
 
 def test_article_party_rule_and_definition_detection() -> None:

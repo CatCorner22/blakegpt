@@ -79,8 +79,39 @@ def lint(
     for offset in sorted(number_offsets):
         add("R-DIGITS", offset, "Use digits for numbers.")
 
+    outline_line_prefixes = (
+        re.compile(r"^\s*(?:[IVXLCDM]+|[A-Za-z]|\d+)\.[ \t]+"),
+        re.compile(r"^\s*\([A-Za-z]+\)[ \t]+"),
+        re.compile(r"^\s*\d+\.\d+(?:\.\d+)*[ \t]+"),
+    )
+    outline_label_digits: set[int] = set()
+    post_label_digits: set[int] = set()
+    line_offset = 0
+    for line_text in text.splitlines(keepends=True):
+        prefix = next(
+            (pattern.match(line_text) for pattern in outline_line_prefixes if pattern.match(line_text)),
+            None,
+        )
+        if prefix is not None:
+            label_digit = re.match(r"\s*(\d)", line_text)
+            if label_digit is not None:
+                outline_label_digits.add(line_offset + label_digit.start(1))
+            remainder = line_text[prefix.end() :]
+            next_label = re.match(r"[ \t]*\d+\.[ \t]+", remainder)
+            if next_label is None:
+                sentence_digit = re.match(r"[ \t]*(\d)", remainder)
+                if sentence_digit is not None:
+                    post_label_digits.add(
+                        line_offset + prefix.end() + sentence_digit.start(1)
+                    )
+        line_offset += len(line_text)
+
     for match in re.finditer(r"(?:^|\n|[.!?]\s+)(\d)", text):
-        add("R-LEADING-DIGIT", match.start(1), "A sentence must not start with a digit.")
+        offset = match.start(1)
+        if offset not in outline_label_digits:
+            add("R-LEADING-DIGIT", offset, "A sentence must not start with a digit.")
+    for offset in sorted(post_label_digits):
+        add("R-LEADING-DIGIT", offset, "A sentence must not start with a digit.")
 
     for party in parties:
         party_pattern = re.compile(
