@@ -247,6 +247,11 @@
  * gzipped in 138 chunks, 38 bytes over the 912 KB budget. The budget is
  * raised to 915 KB: the next whole KB above the measured size plus 2 KB of
  * CI variation. The largest chunk stays under 118 KB.
+ *
+ * 2026-10-07: BlakeGPT home and the compliance desk add 4.2 KB gzipped over
+ * origin/main (916.2 KB versus 912.0 KB), within the requested 10 KB growth
+ * limit. Total budget raised to 920 KB to cover the measured build and 3.8 KB
+ * of CI variation.
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -255,7 +260,7 @@ import { gzipSync } from "node:zlib";
 const ASSETS = join(process.cwd(), ".vercel", "output", "static", "assets");
 const BUDGET = {
   largestChunkGzipBytes: 118 * 1024,
-  totalGzipBytes: 915 * 1024,
+  totalGzipBytes: 920 * 1024,
 };
 
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;

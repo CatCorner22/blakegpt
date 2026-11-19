@@ -22,6 +22,10 @@ describe("needsPractice", () => {
     expect(needsPractice(["__root__", id])).toBe(false);
   });
 
+  it.each(["/blakegpt", "/desk"])("%s renders without business state", (id) => {
+    expect(needsPractice(["__root__", id])).toBe(false);
+  });
+
   it("renders the not-found page without it", () => {
     expect(needsPractice(["__root__"])).toBe(false);
   });
@@ -45,6 +49,10 @@ describe("isPracticePath", () => {
     "/reports",
     "/threat",
   ])("%s does not", (path) => {
+    expect(isPracticePath(path)).toBe(false);
+  });
+
+  it.each(["/blakegpt", "/desk"])("%s stays outside the practice shell", (path) => {
     expect(isPracticePath(path)).toBe(false);
   });
 });

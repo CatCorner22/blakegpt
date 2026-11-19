@@ -403,6 +403,12 @@ function Home() {
                 </SignedIn>
               </div>
               <div className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2 sm:order-2 sm:ml-auto sm:w-auto sm:flex-nowrap">
+                <Link
+                  to="/blakegpt"
+                  className="hidden rounded-md px-2 py-1 text-xs text-muted hover:text-fg sm:inline-flex"
+                >
+                  BlakeGPT
+                </Link>
                 <PresentationToggle />
                 <SyncStatusBadge compactOnPhone />
                 <HeaderActions

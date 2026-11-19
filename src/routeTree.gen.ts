@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BlakegptRouteImport } from './routes/blakegpt'
+import { Route as DeskRouteImport } from './routes/desk'
 import { Route as FirmRouteImport } from './routes/firm'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OperatorRouteImport } from './routes/operator'
@@ -37,6 +39,16 @@ import { Route as ApiIntegrationsQboCallbackRouteImport } from './routes/api/int
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlakegptRoute = BlakegptRouteImport.update({
+  id: '/blakegpt',
+  path: '/blakegpt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeskRoute = DeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FirmRoute = FirmRouteImport.update({
@@ -158,6 +170,8 @@ const ApiIntegrationsQboCallbackRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/blakegpt': typeof BlakegptRoute
+  '/desk': typeof DeskRoute
   '/firm': typeof FirmRoute
   '/login': typeof LoginRoute
   '/operator': typeof OperatorRoute
@@ -184,6 +198,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/blakegpt': typeof BlakegptRoute
+  '/desk': typeof DeskRoute
   '/firm': typeof FirmRoute
   '/login': typeof LoginRoute
   '/operator': typeof OperatorRoute
@@ -211,6 +227,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/blakegpt': typeof BlakegptRoute
+  '/desk': typeof DeskRoute
   '/firm': typeof FirmRoute
   '/login': typeof LoginRoute
   '/operator': typeof OperatorRoute
@@ -239,6 +257,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/blakegpt'
+    | '/desk'
     | '/firm'
     | '/login'
     | '/operator'
@@ -265,6 +285,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/blakegpt'
+    | '/desk'
     | '/firm'
     | '/login'
     | '/operator'
@@ -291,6 +313,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/blakegpt'
+    | '/desk'
     | '/firm'
     | '/login'
     | '/operator'
@@ -318,6 +342,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BlakegptRoute: typeof BlakegptRoute
+  DeskRoute: typeof DeskRoute
   FirmRoute: typeof FirmRoute
   LoginRoute: typeof LoginRoute
   OperatorRoute: typeof OperatorRoute
@@ -350,6 +376,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blakegpt': {
+      id: '/blakegpt'
+      path: '/blakegpt'
+      fullPath: '/blakegpt'
+      preLoaderRoute: typeof BlakegptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desk': {
+      id: '/desk'
+      path: '/desk'
+      fullPath: '/desk'
+      preLoaderRoute: typeof DeskRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/firm': {
@@ -518,6 +558,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BlakegptRoute: BlakegptRoute,
+  DeskRoute: DeskRoute,
   FirmRoute: FirmRoute,
   LoginRoute: LoginRoute,
   OperatorRoute: OperatorRoute,
