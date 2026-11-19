@@ -1,0 +1,2 @@
+id,date,employee,merchant,amount,category,receipt,submitted
+sample-1,2026-06-01,Employee A,Dental Supply,20,Supplies,receipt.pdf,2026-06-02

@@ -1,0 +1,33 @@
+# MSCD 5 rules adapted for the psychedelic-medicine model ethics code. Checkable by a linter or an LLM judge.
+# Source: knowledge/sources/mscd-5th-edition.md. Project override: modal verbs per user convention.
+modal_verbs:
+  duty: must            # project override of MSCD "shall" (MSCD ch.3 ¶3.85)
+  prohibition: must not # project override of MSCD "shall not" (¶3.305)
+  discretion: may       # MSCD ¶3.205
+  policy: present tense; "will" only for contingent future events (¶3.332–3.334)
+  forbidden: [shall, shall not, is required to, is obligated to, agrees to, undertakes to]
+  may_ambiguity: do not use "may" for possibility; write "might" (¶3.231)
+one_category_per_sentence: true   # ¶3.5
+active_voice_for_party_action: true   # ¶3.15
+numbers:
+  form: digits only; never "thirty (30)"   # ch.14 ¶14.1–14.6; project convention = digits
+ambiguity:
+  and_or: forbidden; write "X or Y or both" (¶11.90–11.91)
+  doublets_strings: forbidden (ch.1 "limit the use of strings"); one word per concept
+  reasonable_efforts: use one variant only (ch.8)
+  material: define or avoid (ch.9)
+  part_vs_whole: prefer "each" for distributive, define scope explicitly (ch.11)
+  syntactic: place modifiers next to what they modify; tabulate to resolve (ch.12)
+sentence_design:
+  max_words_soft: 25        # ch.17 ¶17.2
+  split_chained_clauses: true   # ¶17.3
+  tabulate_enumerations: true   # ¶4.43
+lexicon:
+  archaic_forbidden: [whereas, hereby, herein, hereof, thereof, said (as determiner), such (as determiner), aforesaid, witnesseth]
+  legalistic_forbidden: [including but not limited to → "including", null and void → "void", terms and conditions → "terms"]
+defined_terms:
+  define_once: true
+  use_exactly: true
+  no_definitions_for_terms_used_once: true   # ch.6
+no_persuasion: true   # ch.1 principle 9: code states rules, does not argue
+no_redundancy: true   # ch.1 principle 4–5; ¶1.56
