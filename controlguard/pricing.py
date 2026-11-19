@@ -18,7 +18,7 @@ def price(data: Fields) -> Fields:
     truth_unit = list_price * (1 - discount) / max(po_pack, EPSILON)
     truth_total = quantity * invoice_pack * truth_unit
     billed_total = quantity * billed_price
-    warnings = ["A pack size is below epsilon. Verify the units before relying on this amount."] if (
+    warnings = ["A pack size is zero or too small. Check the pack sizes before using this amount."] if (
         min(invoice_pack, po_pack) < EPSILON
     ) else []
     return {"invoice_unit_price": finite(invoice_unit), "truth_unit_price": finite(truth_unit),

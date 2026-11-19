@@ -28,28 +28,33 @@ overflow-wrap:anywhere}section.result,#ask{margin-bottom:1rem}.error{border-left
 """
 
 
-def page(result: str | None = None, error: bool = False) -> str:
+def page(result: str | None = None, error: bool = False, *, submitted: str | None = None,
+         raw: str | None = None, adapter: str | None = None) -> str:
     cards = []
     for key, engine in ENGINES.items():
         hint = (" <small>To sign, set action to append. Add subject, control, signer, actor, "
                 "cadence and artifact.</small>") if key == "ledger" else ""
+        value = raw if submitted == key and raw is not None else encode(engine.example, pretty=True)
         cards.append(f'<form id="{key}" method="post" action="/{key}#result">'
                      f'<h2>{engine.title}</h2><p>{engine.help}{hint}</p>'
                      f'<label for="input-{key}">{engine.title} · JSON</label>'
                      f'<textarea id="input-{key}" name="input" spellcheck="false" required>'
-                     f'{escape(encode(engine.example, pretty=True))}</textarea><button>Run tool</button></form>')
+                     f'{escape(value)}</textarea><button>Run tool</button></form>')
     section = (f'<section class="result{" error" if error else ""}" id="result" '
                f'aria-labelledby="result-heading"><h2 id="result-heading">'
                f'{"Check the input" if error else "Result"}</h2><pre>{escape(result)}</pre></section>'
                if result is not None else "")
+    ask_value = raw if submitted == "ask" and raw is not None else ""
+    selected = " selected" if adapter == "a2" else ""
     ask_form = ('<form id="ask" method="post" action="/ask#result"><h2>Ask ControlGuard</h2>'
                 '<p>Use a local model, if configured. Without one, enter a tool name and JSON, '
                 'or start with <code>Convert:</code> for leave. Do not enter personal data.</p>'
                 '<label for="adapter">Tool group</label><select id="adapter" name="adapter">'
                 '<option value="a1">Policy and leave · A1</option>'
-                '<option value="a2">Controls and pricing · A2</option></select>'
+                f'<option value="a2"{selected}>Controls and pricing · A2</option></select>'
                 '<label for="ask-input">Request</label><textarea id="ask-input" name="input" required '
-                'placeholder="Convert: Staff earn 1 day/month."></textarea><button>Run request</button></form>')
+                f'placeholder="Convert: Staff earn 1 day/month.">{escape(ask_value)}</textarea>'
+                '<button>Run request</button></form>')
     return ('<!doctype html><html lang="en"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>ControlGuard</title><style>{STYLE}</style><header>'
@@ -98,11 +103,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
             return
         self.connection.settimeout(10)
+        raw = adapter = None
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 < size <= 256_000:
                 raise ValueError("Use an input under 256 KB.")
-            form = parse_qs(self.rfile.read(size).decode("utf-8"), strict_parsing=True,
+            form = parse_qs(self.rfile.read(size).decode("utf-8"), strict_parsing=True, keep_blank_values=True,
                             max_num_fields=2 if engine == "ask" else 1)
             raw = form.get("input", [""])[0]
             if engine == "ask":
@@ -112,9 +118,10 @@ class Handler(BaseHTTPRequestHandler):
                 output = run_engine(engine, decode(raw), self.ledger)
             result = encode(output, pretty=True)
         except (OSError, ValueError, RecursionError, sqlite3.Error, http.client.HTTPException) as error:
-            self._send(HTTPStatus.BAD_REQUEST, page(str(error), error=True))
+            self._send(HTTPStatus.BAD_REQUEST, page(str(error), error=True, submitted=engine, raw=raw,
+                                                    adapter=adapter))
             return
-        self._send(HTTPStatus.OK, page(result))
+        self._send(HTTPStatus.OK, page(result, submitted=engine, raw=raw, adapter=adapter))
 
 
 def serve(port: int, ledger: Ledger) -> None:

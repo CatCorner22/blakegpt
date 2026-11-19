@@ -7,7 +7,8 @@ from .inputs import Fields, finite, integer, number, string
 
 DATE = re.compile(r"([+-]?\d{1,6})-([+-]?\d{1,6})-([+-]?\d{1,6})")
 LEAVE = re.compile(
-    r"(?<![\w./-])(?:(?P<amount>\d+(?:\.\d+)?)[ -]+days?|(?:a\s+)?(?P<half>half[- ]day))\b"
+    r"(?<![\w./–—-])(?:(?:(?P<start>\d+(?:\.\d+)?)(?P<join>\s*[-–—]\s*|\s+(?:to|or)\s+))?"
+    r"(?P<amount>\d+(?:\.\d+)?)[ -]+days?|(?:a\s+)?(?P<half>half[- ]day))\b"
     r"(?:\s*(?:/|per\s+)\s*(?:calendar\s+)?(?P<period>month|year)\b)?", re.IGNORECASE
 )
 DAYS = re.compile(r"\b(?:half[- ]day|days?)\b", re.IGNORECASE)
@@ -59,6 +60,12 @@ def leave(data: Fields) -> Fields:
 
     count = 0
 
+    def shift_to_hours(amount: Decimal) -> str:
+        hours = format(shift * amount, "f")
+        if "." in hours:
+            hours = hours.rstrip("0").rstrip(".")
+        return hours if "." in hours else f"{hours}.0"
+
     def convert(match: re.Match[str]) -> str:
         nonlocal count
         remainder = source[match.end():]
@@ -66,11 +73,10 @@ def leave(data: Fields) -> Fields:
             return match[0]
         count += 1
         amount = Decimal("0.5") if match["half"] else Decimal(match["amount"])
-        hours = format(shift * amount, "f")
-        if "." in hours:
-            hours = hours.rstrip("0").rstrip(".")
-        if "." not in hours:
-            hours += ".0"
+        hours = shift_to_hours(amount)
+        if match["start"] is not None:
+            join = match["join"] if match["join"].strip().lower() in ("to", "or") else "–"
+            hours = f'{shift_to_hours(Decimal(match["start"]))}{join}{hours}'
         period = {"month": " per calendar month", "year": " per year"}.get(
             (match["period"] or "").lower(), "")
         return f"{hours} hours{period}"

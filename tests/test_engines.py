@@ -98,6 +98,7 @@ def test_price_formulas_and_pack_edge(ledger: Ledger) -> None:
     assert run_engine("price", {**data, "billed_price": 1}, ledger)["overcharge"] == 0
     zero = run_engine("price", {**data, "invoice_pack": 0, "po_pack": 0}, ledger)
     assert zero["warnings"] and zero["truth_total"] == 0
+    assert zero["warnings"] == ["A pack size is zero or too small. Check the pack sizes before using this amount."]
     with pytest.raises(ValueError, match="finite"):
         run_engine("price", {**data, "quantity": Decimal("1e500")}, ledger)
 
@@ -132,6 +133,26 @@ def test_leave_baseline_increments_and_calendar_text(ledger: Ledger) -> None:
     assert result["increment_valid"] is True and result["unresolved_day_units"] is True
     assert run_engine("leave", {"text": "Use leave.", "usage_increment_hours": .25},
                       ledger)["increment_valid"] is False
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("1–2 days", "8.0–16.0 hours"),
+    ("1-2 days", "8.0–16.0 hours"),
+    ("1 to 2 days", "8.0 to 16.0 hours"),
+    ("1 or 2 days", "8.0 or 16.0 hours"),
+    ("0.5 – 2 days/month", "4.0–16.0 hours per calendar month"),
+])
+def test_leave_converts_both_endpoints(ledger: Ledger, source: str, expected: str) -> None:
+    result = run_engine("leave", {"text": source}, ledger)
+    assert result["text"] == expected
+    assert result["replacements"] == 1
+    assert result["unresolved_day_units"] is False
+
+
+def test_leave_keeps_notice_ranges(ledger: Ledger) -> None:
+    result = run_engine("leave", {"text": "Give 1–2 days notice."}, ledger)
+    assert result["text"] == "Give 1–2 days notice."
+    assert result["unresolved_day_units"] is True
 
 
 def test_policy_guardrails_rules_and_catalog(ledger: Ledger) -> None:
