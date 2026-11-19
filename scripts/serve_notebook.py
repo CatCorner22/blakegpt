@@ -100,9 +100,12 @@ if not which("tailscaled"):
 socket = runtime / "tailscaled.sock"
 ts = ["tailscale", f"--socket={socket}"]
 if "tailscaled" not in globals() or tailscaled.poll() is not None:
+    state_dir = runtime / "tailscale"
+    state_dir.mkdir(mode=0o700, exist_ok=True)
     with (runtime / "tailscaled.log").open("w") as output:
         tailscaled = subprocess.Popen([
-            "tailscaled", "--tun=userspace-networking", f"--socket={socket}", "--state=mem:",
+            "tailscaled", "--tun=userspace-networking", f"--socket={socket}",
+            f"--statedir={state_dir}",
         ], stdout=output, stderr=subprocess.STDOUT)
     for _ in range(30):
         if socket.is_socket():
@@ -119,10 +122,10 @@ if status["BackendState"] != "Running":
         subprocess.run(ts + ["up", f"--auth-key=file:{key_file.name}",
                              "--hostname=controlguard-colab", "--timeout=60s"], check=True)
 del auth_key
-subprocess.run(ts + ["serve", "--bg", "--yes", "http://127.0.0.1:8000"], check=True)
+subprocess.run(ts + ["serve", "--bg", "--http=80", "--yes", "http://127.0.0.1:8000"], check=True)
 status = json.loads(subprocess.check_output(ts + ["status", "--json"]))
 dns = status["Self"]["DNSName"].rstrip(".")
-base_url = f"https://{dns}/v1"
+base_url = f"http://{dns}/v1"
 print(f"CONTROLGUARD_BASE_URL={base_url}")
 print("CONTROLGUARD_MODEL=combined")
 print("CONTROLGUARD_API_KEY: use the value from Colab Secrets.")
@@ -140,8 +143,13 @@ leave_tool = {
 }
 payload = {
     "model": "combined", "tool_choice": "auto", "tools": [leave_tool],
-    "messages": [{"role": "user", "content": "Convert this leave clause to hours: 3 days of PTO. "
-                                            "Use 8 hours per shift."}],
+    "messages": [
+        {"role": "system", "content": "Pick exactly one tool and copy only facts provided by the user. "
+                                      "Do not calculate, guess missing inputs, attest to controls, or "
+                                      "answer in prose. If facts are missing, return no tool call."},
+        {"role": "user", "content": "Convert this leave clause to hours: 3 days of PTO. "
+                                    "Use 8 hours per shift."},
+    ],
     "temperature": 0, "max_tokens": 256,
 }
 request = Request(f"{local_url}/v1/chat/completions", data=json.dumps(payload).encode(),
@@ -162,9 +170,9 @@ def notebook() -> Fields:
 Select an **L4 GPU** in Colab. Add `TS_AUTHKEY` and `CONTROLGUARD_API_KEY` to Colab Secrets
 and grant this notebook access. Use a strong random API key and keep it private.
 
-Enable MagicDNS and HTTPS certificates in Tailscale. The Precog host must join the same
-tailnet and have access to the Colab node on port 443. Use a short-lived, ephemeral auth key
-for the Colab node. This notebook uses private Tailscale Serve, not public Funnel.
+Enable MagicDNS in Tailscale. The Precog host must join the same tailnet and have access
+to the Colab node on port 80. Use a short-lived, ephemeral auth key for the Colab node.
+This notebook uses HTTP over the encrypted tailnet with private Tailscale Serve, not public Funnel.
 
 Run the cells in order. The model stops when Colab ends the runtime. Disconnect and
 delete the runtime when finished to stop using GPU units. Use synthetic text for this test.

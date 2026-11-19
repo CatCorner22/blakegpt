@@ -1,13 +1,15 @@
 from io import BytesIO
 import json
 from pathlib import Path
+from socket import AF_UNIX, SOCK_STREAM, socket
 from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.request import Request
 
 import pytest
 
 from controlguard.inputs import encode, fields, items, string
-from scripts.serve_notebook import INSTALL, SMOKE, notebook
+from scripts.serve_notebook import INSTALL, SMOKE, TAILSCALE, notebook
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -50,6 +52,42 @@ def test_install_uses_uv_without_ensurepip() -> None:
     assert commands[3][:2] == [python, "-c"]
 
 
+def test_tailscale_uses_a_state_directory_and_prints_the_http_url(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    socket_path = tmp_path / "tailscaled.sock"
+    state_dir = tmp_path / "tailscale"
+    status = ["tailscale", f"--socket={socket_path}", "status", "--json"]
+    commands: list[list[str]] = []
+
+    def launch(command: list[str], **options: object) -> None:
+        assert command == [
+            "tailscaled", "--tun=userspace-networking", f"--socket={socket_path}",
+            f"--statedir={state_dir}",
+        ]
+        assert state_dir.is_dir()
+        assert options["stdout"] is not None
+        with socket(AF_UNIX, SOCK_STREAM) as listener:
+            listener.bind(str(socket_path))
+
+    def run(command: list[str], *, check: bool) -> None:
+        assert check
+        commands.append(command)
+
+    def check_output(command: list[str]) -> bytes:
+        assert command == status
+        return b'{"BackendState":"Running","Self":{"DNSName":"controlguard-colab.example.ts.net."}}'
+
+    fake_process = SimpleNamespace(Popen=launch, run=run, check_output=check_output, STDOUT=-2)
+    with patch("shutil.which", return_value="/usr/bin/tailscaled"):
+        exec(TAILSCALE, {"runtime": tmp_path, "subprocess": fake_process, "json": json,
+                         "userdata": SimpleNamespace(get=lambda _: "test-auth-key")})
+    assert commands == [
+        status[:2] + ["serve", "--bg", "--http=80", "--yes", "http://127.0.0.1:8000"],
+    ]
+    assert "CONTROLGUARD_BASE_URL=http://controlguard-colab.example.ts.net/v1" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("structured", [True, False])
 def test_smoke_requires_a_structured_leave_tool_call(structured: bool) -> None:
     def endpoint(request: Request, timeout: int) -> BytesIO:
@@ -61,6 +99,13 @@ def test_smoke_requires_a_structured_leave_tool_call(structured: bool) -> None:
         assert payload["model"] == "combined"
         assert payload["tool_choice"] == "auto"
         assert payload["tools"][0]["function"]["name"] == "leave"
+        assert payload["messages"][0] == {
+            "role": "system",
+            "content": "Pick exactly one tool and copy only facts provided by the user. "
+                       "Do not calculate, guess missing inputs, attest to controls, or "
+                       "answer in prose. If facts are missing, return no tool call.",
+        }
+        assert payload["messages"][1]["role"] == "user"
         function = {"name": "leave", "arguments": '{"text":"3 days of PTO","shift_hours":8}'}
         message = ({"tool_calls": [{"type": "function", "function": function}]} if structured
                    else {"content": json.dumps(function)})
