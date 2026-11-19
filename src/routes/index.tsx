@@ -292,6 +292,10 @@ function Home() {
     onOpenLink: (id: string) => openTab(id),
   };
 
+  const hasActiveSectionTab = [...PRIMARY_TABS, ...ANALYZE_TABS].some(
+    (section) => section.id === tab,
+  );
+
   /**
    * One section tab, in strip and rail alike. `hiddenClass` says where the tab
    * hides when it is not open: a phone shows the open tab only, the strip up
@@ -300,6 +304,7 @@ function Home() {
   function sectionTab(t: ShellTab, hiddenClass: string) {
     const Icon = t.icon;
     const active = tab === t.id;
+    const tabStop = active || (!hasActiveSectionTab && t.id === PRIMARY_TABS[0].id);
     return (
       <button
         key={t.id}
@@ -308,7 +313,7 @@ function Home() {
         role="tab"
         aria-selected={active}
         aria-controls="tab-panel"
-        tabIndex={active ? 0 : -1}
+        tabIndex={tabStop ? 0 : -1}
         onClick={() => openTab(t.id)}
         data-active={active || undefined}
         className={cn(

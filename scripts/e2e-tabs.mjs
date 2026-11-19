@@ -427,9 +427,20 @@ async function shellChecks(page) {
   // The header opens Ask Voyager. Someone is out lives on Who knows what;
   // Needs attention and older links open the same absence cards.
   await home();
-  await page.locator("[data-header-tab=pioneer]").click();
+  await page.locator("[data-header-tab=pioneer]").focus();
+  await page.keyboard.press("Enter");
   await page.waitForURL(/[?&]tab=pioneer/, { timeout });
   await page.locator("[data-header-tab=pioneer][aria-pressed=true]").waitFor({ timeout });
+  if ((await page.evaluate(() => window.innerWidth)) >= 1024) {
+    const tabStops = await page
+      .locator('nav[role="tablist"] button[role="tab"][id^="tab-"]')
+      .evaluateAll((tabs) => tabs.filter((tab) => tab.tabIndex === 0).map((tab) => tab.id));
+    if (tabStops.length !== 1 || tabStops[0] !== "tab-start") {
+      throw new Error(
+        `Ask Voyager left rail tab stops ${tabStops.join(", ") || "none"}, expected tab-start`,
+      );
+    }
+  }
   if (await page.locator("nav #tab-pioneer").count()) {
     throw new Error("Ask Voyager appears both in the header and section navigation");
   }
