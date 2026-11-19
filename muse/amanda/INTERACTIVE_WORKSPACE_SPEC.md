@@ -24,6 +24,16 @@ A single-page workspace where Amanda drafts, stores and finds her own compliance
 - Before each save, scan for names with titles, phone numbers, email addresses, dates of birth, SSN patterns, chart or member numbers, and street addresses. If any is found, block the save and offer to replace each match with a role placeholder, for example "[patient]".
 - Show "No PII" in the page footer as a reminder.
 
+## Design: Samurai Cat
+Follow [Blake's Samurai Cat standard](../../design/SAMURAI_CAT.md) for this BlakeGPT page.
+
+- Use no beige, tan, oatmeal or muddy warm-gray grounds.
+- Start with crisp white, cool mist, deep ink or forest green, and blue-green water, with deliberate coral accents. Assign colors to roles—ground, text, action, selection, warning, and focus—and check contrast.
+- Make every screen answer: Where am I? What can I do now? What will that change? How will I know it worked? How do I return or recover?
+- Show explicit pending, success, failure, cancel, retry, and stale states; a click does not confirm a save.
+- Use restrained motion and honor reduced-motion preferences.
+- Reverie and the Garden Path belong to Blake's Focus project and do not appear in BlakeGPT unless Blake adds them.
+
 ## Look and feel
 Calm and quiet: one accent color, generous white space, plain labels and no jargon, large click targets, readable on a phone.
 
