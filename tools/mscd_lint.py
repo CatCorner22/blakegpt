@@ -138,8 +138,13 @@ def lint(
 
     parties = _parties(text, defined_parties)
     findings: list[Finding] = []
+    finding_positions: set[tuple[str, int]] = set()
 
     def add(rule: str, start: int, message: str, severity: str = "error") -> None:
+        key = (rule, start)
+        if key in finding_positions:
+            return
+        finding_positions.add(key)
         line, col = _line_col(text, start)
         findings.append(
             Finding(line, col, rule, _excerpt(text, start), message, severity)
@@ -201,7 +206,7 @@ def lint(
             )
 
     xref_target = (
-        r"(?:\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*"
+        r"(?:\d+[A-Za-z]?(?:\.\d+[A-Za-z]?|\([A-Za-z0-9]+\))*"
         r"|[IVXLCDM]+(?:\.[A-Z0-9]+)*(?:\([A-Za-z0-9]+\))*)"
     )
     xref_pattern = re.compile(
