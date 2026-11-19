@@ -86,6 +86,22 @@ def test_invoice_split_flag() -> None:
     assert all("INVOICE-SPLIT" in result.flags for result in results)
 
 
+def test_reused_invoice_number_is_scoped_to_vendor() -> None:
+    invoices = [
+        invoice("INV-10", qty="5", vendor="Vendor B", date="2026-06-01"),
+        invoice("INV-10", qty="5", vendor="Vendor A", date="2026-06-01"),
+        invoice("INV-11", qty="5", vendor="Vendor A", date="2026-06-02"),
+    ]
+    results = match(
+        [po(qty="100")],
+        [receipt("100")],
+        invoices,
+        approval_threshold="100",
+    )
+    assert "INVOICE-SPLIT" not in results[0].flags
+    assert all("INVOICE-SPLIT" in result.flags for result in results[1:])
+
+
 def test_sequential_invoice_flag() -> None:
     invoices = [
         invoice(f"INV-{number}", date=f"2026-06-0{index}")

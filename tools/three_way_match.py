@@ -67,15 +67,15 @@ def match(
         received[(row["po"], row["line"])] += _decimal(row["qty_received"])
 
     parsed_invoices: list[dict[str, object]] = []
-    totals: dict[str, Decimal] = defaultdict(Decimal)
-    invoice_vendors: dict[str, str] = {}
-    invoice_dates: dict[str, datetime | None] = {}
+    totals: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    invoice_dates: dict[tuple[str, str], datetime | None] = {}
     for row in invoice_rows:
         qty = _decimal(row["qty"])
         price = _decimal(row["unit_price"])
         amount = qty * price
         invoice = row["invoice"]
-        vendor = row.get("vendor", "")
+        vendor = row.get("vendor", "").casefold()
+        invoice_key = (vendor, invoice)
         invoice_date = _date(row.get("date", ""))
         parsed = {
             **row,
@@ -85,13 +85,12 @@ def match(
             "date_parsed": invoice_date,
         }
         parsed_invoices.append(parsed)
-        totals[invoice] += amount
-        invoice_vendors[invoice] = vendor
-        if invoice not in invoice_dates or invoice_dates[invoice] is None:
-            invoice_dates[invoice] = invoice_date
+        totals[invoice_key] += amount
+        if invoice_key not in invoice_dates or invoice_dates[invoice_key] is None:
+            invoice_dates[invoice_key] = invoice_date
 
     results: list[MatchRow] = []
-    invoice_indexes: dict[str, list[int]] = defaultdict(list)
+    invoice_indexes: dict[tuple[str, str], list[int]] = defaultdict(list)
     invoiced_quantities: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
     for index, row in enumerate(parsed_invoices):
         key = (str(row["po"]), str(row["line"]))
@@ -114,12 +113,13 @@ def match(
                 variance = abs(invoice_price - po_price) / abs(po_price) * Decimal("100")
             status = "PRICE-VARIANCE" if variance > tolerance else "MATCH"
         result = MatchRow(str(row["invoice"]), key[0], key[1], status)
-        invoice_indexes[str(row["invoice"])].append(index)
+        invoice_key = (str(row.get("vendor", "")).casefold(), str(row["invoice"]))
+        invoice_indexes[invoice_key].append(index)
         results.append(result)
 
-    by_vendor: dict[str, set[str]] = defaultdict(set)
-    for invoice, vendor in invoice_vendors.items():
-        by_vendor[vendor.casefold()].add(invoice)
+    by_vendor: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    for invoice_key in totals:
+        by_vendor[invoice_key[0]].add(invoice_key)
     window_seconds = window_hours * 60 * 60
     for vendor_invoices in by_vendor.values():
         candidates = [
@@ -146,11 +146,11 @@ def match(
                                 results[result_index].flags.append("INVOICE-SPLIT")
 
     for vendor_invoices in by_vendor.values():
-        numbered: list[tuple[int, str]] = []
-        for invoice in vendor_invoices:
-            found = re.search(r"(\d+)$", invoice)
+        numbered: list[tuple[int, tuple[str, str]]] = []
+        for invoice_key in vendor_invoices:
+            found = re.search(r"(\d+)$", invoice_key[1])
             if found:
-                numbered.append((int(found.group(1)), invoice))
+                numbered.append((int(found.group(1)), invoice_key))
         numbered.sort()
         run: list[str] = []
         previous: int | None = None
