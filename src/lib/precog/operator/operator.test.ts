@@ -240,6 +240,10 @@ describe("findOperatorAccount", () => {
       insert into email_suppressions (email, reason) values ('fay@firm.test', 'bounced');
       insert into product_events (user_id, event, occurred_at)
         values ('fo', 'first_business', '2026-09-01T12:00:00Z');
+      insert into account (id, "accountId", "providerId", "userId", "updatedAt")
+        values ('a_google', 'google-id', 'legacy-google', 'fo', now()),
+          ('a_x', 'x-id', 'legacy-x', 'fo', now()),
+          ('a_future', 'future-id', 'future-provider', 'fo', now());
     `);
     const { account } = await call<{ account: import("./texts").OperatorAccount }>(
       server.findOperatorAccount,
@@ -250,7 +254,7 @@ describe("findOperatorAccount", () => {
       userId: "fo",
       name: "Fay Owner",
       emailVerified: true,
-      providers: ["credential"],
+      providers: ["credential", "future-provider", "legacy-google", "legacy-x"],
       firm: { firmUserId: "fo", name: "North", role: "owner" },
       businesses: { live: 2, deleted: 1 },
       stripeCustomerId: null,
@@ -263,6 +267,9 @@ describe("findOperatorAccount", () => {
       modelCalls: { today: 37, limit: 400 },
       milestones: [{ event: "first_business" }],
     });
+    expect(texts.accountLines(account)).toContain(
+      "Signs in with: email and password, future-provider, Google (legacy sign-in), X (legacy sign-in)",
+    );
     expect(await log()).toEqual([
       { firm: "fo", actor: "op", event: "operator_lookup", subject: "fo" },
     ]);

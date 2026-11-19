@@ -75,7 +75,7 @@ export async function loadOperatorAccount(sql: Sql, user: OperatorUser): Promise
   ] = await Promise.all([
     sql<{ providerId: string }>`
       select distinct "providerId" from account
-      where "userId" = ${user.id} and "providerId" = 'credential' order by 1
+      where "userId" = ${user.id} order by 1
     `,
     sql<{ live: number; deleted: number }>`
       select count(*) filter (where deleted_at is null)::int as live,

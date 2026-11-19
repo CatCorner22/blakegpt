@@ -128,7 +128,7 @@ export interface OperatorAccount {
   name: string;
   email: string;
   emailVerified: boolean;
-  /** "credential" when the account has an email-and-password sign-in. */
+  /** Stored sign-in provider IDs; unknown values remain visible on the operator page. */
   providers: string[];
   createdAt: string;
   firm: { firmUserId: string; name: string; role: string } | null;
@@ -143,9 +143,12 @@ export interface OperatorAccount {
   milestones: { event: string; occurredAt: string }[];
 }
 
-const PROVIDER_LABELS: Record<string, string> = {
-  credential: "email and password",
-};
+function providerLabel(providerId: string): string {
+  if (providerId === "credential") return "email and password";
+  if (providerId.endsWith("-google")) return "Google (legacy sign-in)";
+  if (providerId.endsWith("-x")) return "X (legacy sign-in)";
+  return providerId;
+}
 
 const MILESTONE_LABELS: Record<string, string> = {
   first_business: "first business",
@@ -156,7 +159,7 @@ const MILESTONE_LABELS: Record<string, string> = {
 
 /** The support lines the page prints for a found account, in order. */
 export function accountLines(a: OperatorAccount): string[] {
-  const providers = a.providers.map((p) => PROVIDER_LABELS[p] ?? p);
+  const providers = a.providers.map(providerLabel);
   const milestones = a.milestones.map(
     (m) => `${MILESTONE_LABELS[m.event] ?? m.event} ${formatDay(m.occurredAt)}`,
   );
