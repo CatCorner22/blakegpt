@@ -1,0 +1,16 @@
+[Unit]
+Description=Precog Node server
+After=network.target postgresql.service
+
+[Service]
+User=precog
+Group=precog
+WorkingDirectory=/opt/precog
+Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8080
+EnvironmentFile=/etc/precog/precog.env
+ExecStart=/usr/bin/node .output/server/index.mjs
+Restart=on-failure
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
