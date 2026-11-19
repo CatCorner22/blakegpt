@@ -1,5 +1,7 @@
 # ControlGuard
 
+SMB GRC deterministic engines, web UI, and bespoke LoRA adapter training.
+
 Run local checks for business controls, invoice prices, notice deadlines and policy wording. Python calculates every reported result. The optional Ask panel uses a local model to extract facts or propose policy wording, then runs the same checks. It does not use Gemini or a cloud API.
 
 Use these findings to guide review. They do not provide legal advice, an audit opinion or a CPA attestation. See [REVIEW.md](REVIEW.md) for source checks and production blockers.
@@ -74,9 +76,13 @@ The GPU configs target Qwen3-8B and Qwen3-32B. The trainer pins each base revisi
 
 ### Colab Pro and Kaggle
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CatCorner22/controlguard/blob/main/llm/colab/train_adapters.ipynb)
+
 **Colab Pro:** Open [`llm/colab/train_adapters.ipynb`](llm/colab/train_adapters.ipynb) as a notebook. Start with Qwen3-8B on an L4 or A100. For 32B, select an A100 with at least 40 GB. Pick A1, A2 or both in **Training settings**. The notebook uses Unsloth 4-bit QLoRA and trains the adapters in separate processes. It writes safetensors, predictions and metrics to `My Drive/ControlGuard-Adapters/<base>/<adapter>/` by default. Run eight evaluation examples and 40 training steps per adapter to start. GPU availability and Colab compute-unit charges depend on the session.
 
-The notebook embeds the project source and generates synthetic JSONL locally. For an uploaded or cloned checkout, set `project_folder` to its root. To reuse data, upload the `a1-train.jsonl`, `a1-eval.jsonl`, `a2-train.jsonl` and `a2-eval.jsonl` files you need, and set `dataset_folder` to their directory. Do not upload company or employee records.
+For a private repository, authorize Colab to open the notebook from GitHub, or upload the notebook file to Colab. To clone the source in the runtime, add a GitHub token as the `GITHUB_TOKEN` Colab secret and grant this notebook access. A fine-grained token needs only **Contents: Read-only** access to `CatCorner22/controlguard`.
+
+Without a token, upload and extract a checkout in Google Drive, select **Drive** as `project_source`, and set `project_folder` to the checkout's path relative to **My Drive**. Select **Embedded** to use the snapshot that ships with the notebook. All options can generate synthetic JSONL locally. To reuse data, upload the needed `a1-train.jsonl`, `a1-eval.jsonl`, `a2-train.jsonl`, and `a2-eval.jsonl` files and set `dataset_folder` to their directory. Do not upload company or employee records.
 
 **Free alternative:** [`kaggle/train_adapters.ipynb`](kaggle/train_adapters.ipynb) targets one 16 GB T4 and uses the same 8B recipe, subject to Kaggle's free quota and current accelerator availability. Do not choose a P100. Unsloth requires a newer CUDA compute capability. The bundle includes private kernel metadata. Use the source and quota limits in your account. This command stages a private notebook version without starting a run:
 

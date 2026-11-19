@@ -6,6 +6,57 @@ import textwrap
 from controlguard.inputs import Fields, encode
 from scripts.hf_job import ROOT, bundle
 
+COLAB_SOURCE = '''# @title Clone ControlGuard or use a Drive checkout
+from pathlib import Path
+
+runtime_root = Path(globals().get("RUNTIME_ROOT", "/content/controlguard-training"))
+runtime_root.mkdir(parents=True, exist_ok=True)
+
+if project_source == "GitHub":
+    from base64 import b64encode
+    import os
+    import subprocess
+    from tempfile import mkdtemp
+    from google.colab import userdata
+
+    try:
+        token = userdata.get("GITHUB_TOKEN")
+    except (userdata.SecretNotFoundError, userdata.NotebookAccessError):
+        token = None
+    clone_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "0"}
+    if token:
+        credential = b64encode(f"x-access-token:{token}".encode()).decode()
+        clone_env.update({
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.https://github.com/CatCorner22/controlguard.git.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {credential}",
+        })
+    source = Path(mkdtemp(prefix="checkout-", dir=runtime_root))
+    try:
+        result = subprocess.run([
+            "git", "-c", "http.followRedirects=false", "clone", "--depth", "1", "--branch", "main",
+            "https://github.com/CatCorner22/controlguard.git", str(source),
+        ], env=clone_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    finally:
+        clone_env.pop("GIT_CONFIG_VALUE_0", None)
+        token = credential = None
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Clone failed. Grant this notebook access to the GITHUB_TOKEN Colab secret "
+            "with read access to CatCorner22/controlguard, or select Drive in Training settings."
+        )
+elif project_source == "Drive":
+    from google.colab import drive
+
+    folder = Path(project_folder)
+    if not project_folder.strip() or folder.is_absolute() or ".." in folder.parts:
+        raise ValueError("Enter a checkout folder relative to My Drive.")
+    drive.mount("/content/drive")
+    source = Path("/content/drive/MyDrive") / folder
+elif project_source != "Embedded":
+    raise ValueError("Choose GitHub, Drive, or Embedded as the project source.")
+'''
+
 PREFLIGHT = """import os
 import subprocess
 import sys
@@ -104,7 +155,8 @@ adapter = "both" # @param ["A1", "A2", "both"]
 steps = 40 # @param {type:"integer"}
 eval_examples = 8 # @param {type:"integer"}
 dataset_folder = "" # @param {type:"string"}
-project_folder = "" # @param {type:"string"}
+project_source = "GitHub" # @param ["GitHub", "Drive", "Embedded"]
+project_folder = "ControlGuard" # @param {type:"string"}
 drive_folder = "ControlGuard-Adapters" # @param {type:"string"}
 '''
         setup_output = '''from google.colab import drive
@@ -145,6 +197,23 @@ else:
     source.mkdir(exist_ok=True)
     with ZipFile(BytesIO(b64decode(bundle_text))) as archive:
         archive.extractall(source)
+print("ControlGuard source ready.")
+'''
+    if colab:
+        bootstrap = COLAB_SOURCE + f'''else:
+    from base64 import b64decode
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    source = runtime_root / "source"
+    source.mkdir(exist_ok=True)
+    bundle_text = (
+{textwrap.indent(chunks, "    ")}
+    )
+    with ZipFile(BytesIO(b64decode(bundle_text))) as archive:
+        archive.extractall(source)
+if not (source / "controlguard/llm/train.py").is_file() or not (source / "llm-config").is_dir():
+    raise FileNotFoundError("Use the root of a ControlGuard checkout.")
 print("ControlGuard source ready.")
 '''
     cells = [cell("markdown", intro, "intro"), cell("code", params, "settings"),

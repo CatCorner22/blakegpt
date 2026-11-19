@@ -1,5 +1,7 @@
+from base64 import b64decode
 from pathlib import Path
 import subprocess
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -9,26 +11,35 @@ from controlguard.inputs import decode, fields, items, string
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def notebook_cells(path: str) -> list[object]:
+    notebook = decode((ROOT / path).read_text(encoding="utf-8"))
+    assert notebook["nbformat"] == 4
+    return items(notebook["cells"], "cells")
+
+
+def code_for(cell: dict[str, object]) -> str:
+    lines = items(cell["source"], "source")
+    assert all(isinstance(line, str) for line in lines)
+    return "".join(map(str, lines))
+
+
 @pytest.mark.parametrize("path", ("llm/colab/train_adapters.ipynb", "kaggle/train_adapters.ipynb"))
 def test_notebook_cpu_preflight_and_code_syntax(path: str, tmp_path: Path) -> None:
-    source = (ROOT / path).read_text(encoding="utf-8")
-    notebook = decode(source)
-    assert notebook["nbformat"] == 4
     runtime = tmp_path / "runtime"
     names: dict[str, object] = {"RUNTIME_ROOT": str(runtime)}
     found: set[str] = set()
-    for value in items(notebook["cells"], "cells"):
+    for value in notebook_cells(path):
         cell = fields(value)
         if cell["cell_type"] != "code":
             continue
         identifier = string(cell["id"], "cell id")
         found.add(identifier)
-        lines = items(cell["source"], "source")
-        assert all(isinstance(line, str) for line in lines)
-        code = "".join(map(str, lines))
-        compiled = compile(code, f"{path}:{identifier}", "exec")
+        compiled = compile(code_for(cell), f"{path}:{identifier}", "exec")
         if identifier in ("settings", "source"):
             exec(compiled, names)
+            if identifier == "settings" and path.startswith("llm/colab/"):
+                assert names["project_source"] == "GitHub"
+                names["project_source"] = "Embedded"
         elif identifier == "gpu-preflight":
             with patch("subprocess.run", side_effect=FileNotFoundError("nvidia-smi")) as run:
                 with pytest.raises(RuntimeError, match="Select a GPU runtime"):
@@ -52,6 +63,36 @@ def test_notebook_cpu_preflight_and_code_syntax(path: str, tmp_path: Path) -> No
     assert (runtime / "source/controlguard/llm/train.py").read_bytes() == (
         ROOT / "controlguard/llm/train.py").read_bytes()
     assert (runtime / "source/llm-config/qwen32b-a2.json").is_file()
+
+
+def test_colab_private_clone_uses_ephemeral_auth_and_drive_fallback(tmp_path: Path) -> None:
+    path = "llm/colab/train_adapters.ipynb"
+    source = next(fields(cell) for cell in notebook_cells(path) if fields(cell).get("id") == "source")
+    code = compile(code_for(source), f"{path}:source", "exec")
+    colab = ModuleType("google.colab")
+    setattr(colab, "userdata", SimpleNamespace(get=lambda name: {"GITHUB_TOKEN": "test-secret"}[name]))
+    mounted: list[str] = []
+    setattr(colab, "drive", SimpleNamespace(mount=mounted.append))
+    names: dict[str, object] = {"RUNTIME_ROOT": str(tmp_path), "project_source": "GitHub"}
+
+    def clone(args: list[str], *, env: dict[str, str], stdout: int, stderr: int) -> subprocess.CompletedProcess[str]:
+        repo = "https://github.com/CatCorner22/controlguard.git"
+        assert args[-2] == repo and "test-secret" not in " ".join(args)
+        assert env["GIT_CONFIG_KEY_0"] == f"http.{repo}.extraHeader"
+        assert b64decode(env["GIT_CONFIG_VALUE_0"].split()[-1]) == b"x-access-token:test-secret"
+        assert stdout == stderr == subprocess.DEVNULL
+        return subprocess.CompletedProcess(args, 128)
+
+    with patch.dict("sys.modules", {"google.colab": colab}), patch("subprocess.run", side_effect=clone):
+        with pytest.raises(RuntimeError, match="select Drive"):
+            exec(code, names)
+        assert names["token"] is None and names["credential"] is None
+        assert "GIT_CONFIG_VALUE_0" not in fields(names["clone_env"])
+        names.update(project_source="Drive", project_folder="Uploaded ControlGuard")
+        with pytest.raises(FileNotFoundError, match="root of a ControlGuard checkout"):
+            exec(code, names)
+    assert mounted == ["/content/drive"]
+    assert names["source"] == Path("/content/drive/MyDrive/Uploaded ControlGuard")
 
 
 def test_kaggle_metadata_targets_private_t4() -> None:
