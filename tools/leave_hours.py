@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 from dataclasses import asdict, dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
 
@@ -29,6 +30,28 @@ def _capped_round(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_DOWN)
 
 
+def _parse_year_start(value: str) -> tuple[int, int]:
+    try:
+        if len(value) != 5 or value[2] != "-":
+            raise ValueError
+        month, day = int(value[:2]), int(value[3:])
+        date(2001, month, day)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("year_start must be a valid MM-DD date") from exc
+    return month, day
+
+
+def _plan_year(period: str | None, year_start: tuple[int, int]) -> int | None:
+    if not period:
+        return None
+    try:
+        period_date = date.fromisoformat(period[:10])
+    except ValueError:
+        return None
+    boundary = date(period_date.year, *year_start)
+    return period_date.year if period_date >= boundary else period_date.year - 1
+
+
 @dataclass(frozen=True)
 class PeriodRow:
     period: str
@@ -48,6 +71,7 @@ def accrue(
     used: list[float | int | str | Decimal],
     waiting_period_hours: float | int | str | Decimal = 0,
     periods: list[str] | None = None,
+    year_start: str = "01-01",
 ) -> list[PeriodRow]:
     worked_values = [_decimal(value) for value in hours_worked]
     used_values = [_decimal(value) for value in used]
@@ -70,17 +94,23 @@ def accrue(
         raise ValueError("starting balance exceeds the balance cap")
     if periods is not None and len(periods) != len(worked_values):
         raise ValueError("periods must have the same number of entries as hours_worked")
+    year_start_parts = _parse_year_start(year_start)
 
-    annual_earned = Decimal("0")
+    annual_earned_by_year: dict[int | None, Decimal] = {}
     rows: list[PeriodRow] = []
     for index, (worked, period_used) in enumerate(zip(worked_values, used_values), 1):
         if worked < 0 or period_used < 0:
             raise ValueError("worked and used hours must not be negative")
+        plan_year = _plan_year(
+            periods[index - 1] if periods else None,
+            year_start_parts,
+        )
         eligible_worked = max(Decimal("0"), worked - waiting_remaining)
         waiting_remaining = max(Decimal("0"), waiting_remaining - worked)
         earned = _round(eligible_worked / rate)
         if annual_cap is not None:
-            remaining_annual = max(Decimal("0"), annual_cap - annual_earned)
+            accrued_this_year = annual_earned_by_year.get(plan_year, Decimal("0"))
+            remaining_annual = max(Decimal("0"), annual_cap - accrued_this_year)
             if earned > remaining_annual:
                 earned = _capped_round(remaining_annual)
         if balance_cap is not None:
@@ -90,7 +120,9 @@ def accrue(
         if period_used > balance + earned:
             raise ValueError(f"usage exceeds available balance in period {index}")
         balance = _round(balance + earned - period_used)
-        annual_earned += earned
+        annual_earned_by_year[plan_year] = (
+            annual_earned_by_year.get(plan_year, Decimal("0")) + earned
+        )
         rows.append(
             PeriodRow(
                 periods[index - 1] if periods else str(index),
@@ -135,6 +167,7 @@ def main() -> int:
     parser.add_argument("--annual-cap", type=Decimal)
     parser.add_argument("--balance-cap", type=Decimal)
     parser.add_argument("--carryover-cap", type=Decimal)
+    parser.add_argument("--year-start", default="01-01", metavar="MM-DD")
     parser.add_argument("--starting-balance", type=Decimal, default=Decimal("0"))
     parser.add_argument("--waiting-period-hours", type=Decimal, default=Decimal("0"))
     parser.add_argument("--json", action="store_true")
@@ -151,6 +184,7 @@ def main() -> int:
         [record["hours_used"] for record in records],
         args.waiting_period_hours,
         [record["period"] for record in records],
+        args.year_start,
     )
     result = [asdict(row) for row in rows]
     if args.json:
