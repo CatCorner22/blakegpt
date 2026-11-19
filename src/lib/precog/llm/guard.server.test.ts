@@ -79,6 +79,7 @@ afterEach(() => {
 
 describe("resolveLlmAccess", () => {
   it("keeps deterministic checks outside the model allowance", async () => {
+    const { LLM_LIMITS } = await import("./rate-limit");
     const { resolveLlmAccess } = await guard();
     for (let i = 0; i <= LLM_LIMITS.perIp.limit; i++) {
       await resolveLlmAccess(undefined, { deterministic: true });
