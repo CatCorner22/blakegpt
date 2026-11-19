@@ -4,7 +4,7 @@ import argparse
 import csv
 import json
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
 
@@ -104,6 +104,7 @@ def accrue(
 
     annual_earned_by_year: dict[int, Decimal] = {}
     rows: list[PeriodRow] = []
+    previous_plan_year: int | None = None
     for index, (worked, period_used) in enumerate(zip(worked_values, used_values), 1):
         if worked < 0 or period_used < 0:
             raise ValueError("worked and used hours must not be negative")
@@ -112,6 +113,9 @@ def accrue(
             if periods is not None
             else 0
         )
+        if carryover_cap is not None and plan_year != previous_plan_year:
+            balance = year_end_carryover(balance, carryover_cap)
+        previous_plan_year = plan_year
         eligible_worked = max(Decimal("0"), worked - waiting_remaining)
         waiting_remaining = max(Decimal("0"), waiting_remaining - worked)
         earned = _round(eligible_worked / rate)
@@ -139,7 +143,7 @@ def accrue(
                 balance,
             )
         )
-    if rows and carryover_cap is not None:
+    if rows and carryover_cap is not None and periods is None:
         rows[-1] = PeriodRow(
             rows[-1].period,
             rows[-1].worked,
@@ -147,6 +151,18 @@ def accrue(
             rows[-1].used,
             year_end_carryover(balance, carryover_cap),
         )
+    elif rows and carryover_cap is not None and periods is not None:
+        final_plan_year = _plan_year(periods[-1], year_start_parts, len(periods) + 1)
+        final_date = date.fromisoformat(periods[-1])
+        next_year_start = date(final_plan_year + 1, *year_start_parts)
+        if final_date == next_year_start - timedelta(days=1):
+            rows[-1] = PeriodRow(
+                rows[-1].period,
+                rows[-1].worked,
+                rows[-1].earned,
+                rows[-1].used,
+                year_end_carryover(balance, carryover_cap),
+            )
     return rows
 
 
