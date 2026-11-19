@@ -327,6 +327,9 @@ when the code reads a variable the file does not name.
 
 ### Database migrations
 
+For a private Node and PostgreSQL deployment without Vercel, see the
+[self-hosting guide](docs/SELF_HOSTING.md).
+
 `migrations/*.sql` is the only schema source. `npm run build` runs
 `scripts/migrate.mjs --only-on-production`: preview deploys, CI and local
 builds leave the database alone, and a production deploy applies pending
