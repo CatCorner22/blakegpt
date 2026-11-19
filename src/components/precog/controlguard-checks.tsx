@@ -67,7 +67,8 @@ const noDraft = "No model draft is available. Pick a check and enter the facts b
 const checkFailed = "Precog could not run this check. Try again in a moment.";
 
 function requestMessage(error: unknown, fallback: string) {
-  return clientErrorStatus(error) === 429
+  return clientErrorStatus(error) === 429 ||
+    (error instanceof Error && error.message.startsWith("Too many requests"))
     ? "Request limit reached. Try again in one minute."
     : fallback;
 }
