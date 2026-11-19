@@ -11,6 +11,19 @@ from urllib.request import Request, urlopen
 
 LEIE_URL = "https://oig.hhs.gov/exclusions/downloadables/UPDATED.csv"
 VERIFY_URL = "https://exclusions.oig.hhs.gov"
+STAFF_HEADERS = {
+    "first": ("first", "first_name"),
+    "last": ("last", "last_name"),
+    "npi": ("npi",),
+    "business": ("business", "business_name"),
+}
+LEIE_HEADERS = {
+    "FIRSTNAME": ("FIRSTNAME",),
+    "LASTNAME": ("LASTNAME",),
+    "BUSNAME": ("BUSNAME",),
+    "NPI": ("NPI",),
+    "EXCLDATE": ("EXCLDATE",),
+}
 
 
 @dataclass(frozen=True)
@@ -76,9 +89,49 @@ def check_names(
     return matches
 
 
-def _read_csv(path: Path) -> list[dict[str, str]]:
+def _normalize_header(header: str) -> str:
+    return header.casefold().replace(" ", "").replace("_", "")
+
+
+def _read_csv(
+    path: Path,
+    aliases: dict[str, tuple[str, ...]],
+    required: tuple[str, ...],
+    source_name: str,
+) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as source:
-        return list(csv.DictReader(source))
+        reader = csv.DictReader(source)
+        headers = reader.fieldnames or []
+        original_by_normalized: dict[str, str] = {}
+        for header in headers:
+            original_by_normalized.setdefault(_normalize_header(header), header)
+        selected: dict[str, str | None] = {}
+        missing: list[str] = []
+        for canonical, accepted in aliases.items():
+            original = next(
+                (
+                    original_by_normalized[_normalize_header(alias)]
+                    for alias in accepted
+                    if _normalize_header(alias) in original_by_normalized
+                ),
+                None,
+            )
+            selected[canonical] = original
+            if canonical in required and original is None:
+                missing.append(f"{canonical} (accepted: {' or '.join(accepted)})")
+        if missing:
+            raise ValueError(
+                f"{source_name} CSV is missing required header(s): "
+                f"{', '.join(missing)}. Expected headers: "
+                f"{', '.join(', '.join(aliases[field]) for field in required)}."
+            )
+        return [
+            {
+                canonical: (row.get(original, "") or "") if original else ""
+                for canonical, original in selected.items()
+            }
+            for row in reader
+        ]
 
 
 def main() -> int:
@@ -89,13 +142,28 @@ def main() -> int:
     source.add_argument("--download", type=Path, metavar="PATH")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    leie_path = args.leie
-    if args.download:
-        size = download_leie(args.download)
-        print(f"Downloaded {size} bytes to {args.download}.", file=sys.stderr)
-        leie_path = args.download
-    assert leie_path is not None
-    matches = check_names(_read_csv(args.input), _read_csv(leie_path))
+    try:
+        staff_rows = _read_csv(
+            args.input,
+            STAFF_HEADERS,
+            ("first", "last"),
+            "staff",
+        )
+        leie_path = args.leie
+        if args.download:
+            size = download_leie(args.download)
+            print(f"Downloaded {size} bytes to {args.download}.", file=sys.stderr)
+            leie_path = args.download
+        assert leie_path is not None
+        leie_rows = _read_csv(
+            leie_path,
+            LEIE_HEADERS,
+            ("FIRSTNAME", "LASTNAME", "BUSNAME", "NPI", "EXCLDATE"),
+            "LEIE",
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    matches = check_names(staff_rows, leie_rows)
     if args.json:
         print(json.dumps([asdict(item) for item in matches], indent=2))
     elif matches:
