@@ -1,0 +1,2 @@
+invoice,po,line,qty,unit_price,vendor,date
+INV-1,PO-1,1,2,10,Vendor A,2026-06-01
