@@ -19,7 +19,7 @@ vi.mock("@tanstack/react-start", () => ({
     return chain;
   },
 }));
-vi.mock("./middleware", () => ({ heavyLlmMiddleware: {} }));
+vi.mock("./middleware", () => ({ deterministicCheckMiddleware: {}, heavyLlmMiddleware: {} }));
 vi.mock("./guard.server", () => ({ spendCallerDailyUnit: seams.spend }));
 vi.mock("./controlguard-provider.server", () => ({
   controlguardProvider: () => ({ model: "combined" }),

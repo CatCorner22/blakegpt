@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { clientErrorStatus } from "@/lib/request-errors";
 import { CONTROL_CATALOG } from "@/lib/precog/evidence/controls";
 import {
   extractControlGuardFacts,
@@ -62,6 +63,14 @@ const examples: Record<ControlGuardTool, object> = {
 
 const stringify = (value: unknown) => JSON.stringify(value, null, 2);
 const control = "w-full rounded-md border border-border bg-elevated px-3 py-2 text-sm";
+const noDraft = "No model draft is available. Pick a check and enter the facts below.";
+const checkFailed = "Precog could not run this check. Try again in a moment.";
+
+function requestMessage(error: unknown, fallback: string) {
+  return clientErrorStatus(error) === 429
+    ? "Request limit reached. Try again in one minute."
+    : fallback;
+}
 
 export function ControlGuardChecks() {
   const [tool, setTool] = useState<ControlGuardTool>("cliff");
@@ -85,9 +94,9 @@ export function ControlGuardChecks() {
     try {
       const checked = await runControlGuardCheck({ data: { name: tool, facts, entries } });
       if (checked.result) setResult(checked.result);
-      else setMessage(checked.error ?? "Precog could not run this check.");
-    } catch {
-      setMessage("Precog could not run this check. Try again in a moment.");
+      else setMessage(checked.error ?? checkFailed);
+    } catch (error) {
+      setMessage(requestMessage(error, checkFailed));
     } finally {
       setWaiting(false);
     }
@@ -97,8 +106,10 @@ export function ControlGuardChecks() {
     setLoadingReference(true);
     try {
       setCatalogs(await readControlGuardReference());
-    } catch {
-      setMessage("Precog could not open the reference. Try again in a moment.");
+    } catch (error) {
+      setMessage(
+        requestMessage(error, "Precog could not open the reference. Try again in a moment."),
+      );
     } finally {
       setLoadingReference(false);
     }
@@ -116,9 +127,9 @@ export function ControlGuardChecks() {
         setMessage("Review the draft inputs, then run the check.");
         return;
       }
-      setMessage("No model draft is available. Pick a check and enter the facts below.");
-    } catch {
-      setMessage("No model draft is available. Pick a check and enter the facts below.");
+      setMessage(noDraft);
+    } catch (error) {
+      setMessage(requestMessage(error, noDraft));
     } finally {
       setWaiting(false);
     }
@@ -150,8 +161,8 @@ export function ControlGuardChecks() {
       });
       setEntries([...entries, entry]);
       setMessage("Sign-off added for this session.");
-    } catch {
-      setMessage("The sign-off could not be added. Check the entries.");
+    } catch (error) {
+      setMessage(requestMessage(error, "The sign-off could not be added. Check the entries."));
     } finally {
       setWaiting(false);
     }

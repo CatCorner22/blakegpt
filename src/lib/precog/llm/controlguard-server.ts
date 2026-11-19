@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { heavyLlmMiddleware } from "./middleware";
+import { deterministicCheckMiddleware, heavyLlmMiddleware } from "./middleware";
 import { spendCallerDailyUnit } from "./guard.server";
 import { controlguardProvider, extractControlGuardInput } from "./controlguard-provider.server";
 import { controlguardTools, type ControlGuardResult } from "./controlguard-tools";
@@ -68,7 +68,7 @@ function displayResult(result: ControlGuardResult) {
 }
 
 export const runControlGuardCheck = createServerFn({ method: "POST" })
-  .middleware([heavyLlmMiddleware])
+  .middleware([deterministicCheckMiddleware])
   .validator((data: { name: ControlGuardTool; facts: string; entries: FridayEntry[] }) =>
     checkInput.parse(data),
   )
@@ -91,7 +91,7 @@ export const runControlGuardCheck = createServerFn({ method: "POST" })
 const signoffInput = z.strictObject({ entries: z.array(entry).max(99), signoff });
 
 export const recordControlGuardSignoff = createServerFn({ method: "POST" })
-  .middleware([heavyLlmMiddleware])
+  .middleware([deterministicCheckMiddleware])
   .validator((data: z.input<typeof signoffInput>) => signoffInput.parse(data))
   .handler(({ data }) => appendFridayEntry(data.entries, data.signoff, new Date()));
 
