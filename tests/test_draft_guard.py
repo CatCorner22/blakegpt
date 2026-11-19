@@ -1,5 +1,7 @@
-from io import StringIO
 import sys
+from io import StringIO
+
+import evals.blakegpt_eval_v2 as eval_v2
 
 from evals.blakegpt_eval_v2 import CASES, score_case
 from tools.draft_guard import guard, main, route
@@ -158,6 +160,28 @@ def test_stored_32b_mscd_reply_passes_shared_scoring_after_guard() -> None:
     assert scored["pass"]
     assert scored["need"] == {r"\b30\b": True, r"\bshall\b": True}
     assert scored["forbidden"] == []
+
+
+def test_rescoring_a_saved_reply_twice_is_idempotent() -> None:
+    reply = '''**Contract Sentence:**
+
+"The Vendor shall give the Practice thirty (30) days' written notice before ending this Agreement."'''
+    case = next(case for case in CASES if case[0] == "mscd-digits")
+    stored_row = {
+        "case": case[0],
+        "question": case[1],
+        "reply": reply,
+        "seconds": 0.0,
+        "top_cards": [],
+    }
+
+    once = eval_v2._rescore_row(stored_row)
+    twice = eval_v2._rescore_row(once)
+
+    assert once["reply"] == twice["reply"]
+    assert once["need"] == twice["need"]
+    assert once["forbidden"] == twice["forbidden"]
+    assert once["pass"] == twice["pass"] is True
 
 
 def test_cli_reads_stdin_and_prints_guarded_text(monkeypatch, capsys) -> None:

@@ -68,11 +68,19 @@ CASES = [
     ("tool-expense", "Here's our card statement. Find split purchases and duplicate charges.", None, [r"expense_audit|tool|CSV|upload"], []),
 ]
 CASES_BY_NAME = {case[0]: case for case in CASES}
+_DRAFTING_FOOTER = "\n\nDrafting check (tools/draft_guard.py):"
 
 
 def guard_reply(question: str, reply: str) -> str:
     mode = route(question)
     return guard(reply, mode).text if mode is not None else reply
+
+
+def _rescore_reply(question: str, reply: str) -> str:
+    body, marker, _ = reply.rpartition(_DRAFTING_FOOTER)
+    if marker:
+        reply = body
+    return guard_reply(question, reply)
 
 
 def score_case(case, reply: str, seconds: float, top_cards: list[str]) -> dict:
@@ -112,6 +120,18 @@ def _print_summary(rows: list[dict], output: Path) -> None:
     median = seconds[len(seconds) // 2] if seconds else 0.0
     passed = sum(row["pass"] for row in rows)
     print(f"passed {passed}/{len(rows)}; median {median}s; wrote {output}")
+
+
+def _rescore_row(stored_row: dict) -> dict:
+    case = CASES_BY_NAME[stored_row["case"]]
+    reply = _rescore_reply(case[1], stored_row["reply"])
+    row = score_case(
+        case,
+        reply,
+        stored_row["seconds"],
+        stored_row["top_cards"],
+    )
+    return {**stored_row, **row}
 
 
 def run_evaluation(label: str) -> Path:
@@ -161,17 +181,7 @@ def rescore_artifact(artifact: Path) -> Path:
     source = artifact if artifact.is_absolute() else ROOT / artifact
     source = source.resolve()
     stored = json.loads(source.read_text(encoding="utf-8"))
-    rows = []
-    for stored_row in stored["results"]:
-        case = CASES_BY_NAME[stored_row["case"]]
-        reply = guard_reply(case[1], stored_row["reply"])
-        row = score_case(
-            case,
-            reply,
-            stored_row["seconds"],
-            stored_row["top_cards"],
-        )
-        rows.append({**stored_row, **row})
+    rows = [_rescore_row(stored_row) for stored_row in stored["results"]]
 
     label = source.stem.removeprefix("blakegpt-eval-v2-").removesuffix("-rescored")
     output = ROOT / "artifacts" / f"blakegpt-eval-v2-{label}-rescored.json"
