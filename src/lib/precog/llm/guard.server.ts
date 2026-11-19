@@ -46,6 +46,8 @@ export interface LlmAccessOptions {
    * still run. This call does not take a per-minute model slot.
    */
   unmetered?: boolean;
+  /** Local checks only: preserve request and account checks without using a model slot. */
+  deterministic?: boolean;
 }
 
 /**
@@ -63,8 +65,10 @@ export async function resolveLlmAccess(
 ): Promise<LlmAccess> {
   assertSameSiteRequest();
   const ipKey = `ip:${requestIp()}`;
-  const ipResult = perIpLimiter.take(ipKey);
-  if (!ipResult.allowed) throw new TooManyRequestsError(ipResult.retryAfterMs, TRY_AGAIN);
+  if (!options.deterministic) {
+    const ipResult = perIpLimiter.take(ipKey);
+    if (!ipResult.allowed) throw new TooManyRequestsError(ipResult.retryAfterMs, TRY_AGAIN);
+  }
 
   let userId: string | null = null;
   if (!authConfigured && !databaseConfigured) {
@@ -75,6 +79,7 @@ export async function resolveLlmAccess(
     // a budget, under another.
     if (expectedAccountId !== undefined) assertExpectedAccount(expectedAccountId, userId ?? "");
   }
+  if (options.deterministic) return { userId, grok: "no_api_key" };
 
   if (!options.unmetered && options.heavy && !userId) {
     const anonymous = anonymousHeavyGate(ipKey);

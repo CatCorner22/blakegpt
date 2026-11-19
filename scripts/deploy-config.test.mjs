@@ -53,6 +53,22 @@ describe("vercel.json", () => {
   });
 });
 
+describe("self-hosted digest", () => {
+  it("calls the same digest route on the same weekly UTC schedule", async () => {
+    const { crons } = JSON.parse(await readFile(join(ROOT, "vercel.json"), "utf8"));
+    const { path, schedule } = crons.find(({ path }) => path === "/api/cron/digest");
+    const [minute, hour, day, month, weekday] = schedule.split(" ");
+    expect([day, month]).toEqual(["*", "*"]);
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const timer = await readFile(join(ROOT, "deploy/self-host/precog-digest.timer"), "utf8");
+    expect(timer.split("\n")).toContain(
+      `OnCalendar=${weekdays[Number(weekday)]} *-*-* ${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:00 UTC`,
+    );
+    const digest = await readFile(join(ROOT, "deploy/self-host/digest.sh"), "utf8");
+    expect(digest).toContain(path);
+  });
+});
+
 /** Every variable name read in src/ and scripts/, mapped to the first file that reads it. */
 async function readVariables() {
   const patterns = [
