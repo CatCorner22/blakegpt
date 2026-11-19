@@ -11,6 +11,12 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.pii_redact import redact
+
+
 CASES = [
     ("How often must our bloodborne pathogens exposure control plan be reviewed?", "us-1910-1030-exposure-control-plan", [r"1910\.1030", r"annual"]),
     ("How long must we keep sterilizer spore-test logs in Tennessee?", "tn-0460-01-11-spore-testing-and-logs", [r"0460-01-\.11", r"\b2\b|two"]),
@@ -63,8 +69,9 @@ def ask(system, user):
     host = urllib.parse.urlsplit(base).hostname or ""
     if not base.startswith("https://") and host not in ("localhost", "127.0.0.1", "::1"):
         sys.exit("BLAKEGPT_BASE_URL must use https:// unless it points at localhost")
+    redacted_user, _ = redact(user)
     body = {"model": os.environ["BLAKEGPT_MODEL"], "temperature": 0, "max_tokens": 600,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": redacted_user}]}
     req = urllib.request.Request(base + "/chat/completions", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json",
                                           "Authorization": "Bearer " + os.environ.get("BLAKEGPT_API_KEY", "")})
@@ -81,7 +88,8 @@ def main():
 
     def run(name, question, checks, expect_card=None, forbid=()):
         top = bm25(question, cards)
-        row = {"case": name, "question": question, "top_cards": [cards[p][0] for p in top],
+        redacted_question, _ = redact(question)
+        row = {"case": name, "question": redacted_question, "top_cards": [cards[p][0] for p in top],
                "retrieval_hit": (expect_card in [cards[p][0] for p in top]) if expect_card else None}
         if not retrieval_only:
             context = "\n\n".join(f"=== CARD {cards[p][0]} ({p}) ===\n{cards[p][1]}" for p in top)

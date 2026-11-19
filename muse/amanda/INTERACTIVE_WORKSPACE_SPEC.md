@@ -20,6 +20,7 @@ A single-page workspace where Amanda drafts, stores and finds her own compliance
 - Never send stored content to a third party except the model platform the project already uses.
 
 ## Privacy guardrails
+- The workspace runs text through `tools/pii_redact.py` before sending it to a model or saving it.
 - Before each save, scan for names with titles, phone numbers, email addresses, dates of birth, SSN patterns, chart or member numbers, and street addresses. If any is found, block the save and offer to replace each match with a role placeholder, for example "[patient]".
 - Show "No PII" in the page footer as a reminder.
 

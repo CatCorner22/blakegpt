@@ -13,6 +13,7 @@ All of these are light: small pretrained models, with no training required. They
 - Search results always show the card's citation and status. A model score never turns an unverified card into a verified one.
 - Fallback: when no model is installed, search uses keyword matching (BM25), so every feature still works offline.
 - Pin each model by name and revision in `tools/ml_config.json` once it is chosen, so results don't drift.
+- The workspace runs text through `tools/pii_redact.py` before sending it to a model or saving it.
 - No PII goes to any model. The workspace's privacy scan runs before ingestion.
 
 ## Optional fine-tuning (later, small)
