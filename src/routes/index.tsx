@@ -278,8 +278,8 @@ function Home() {
     [sodReport, profile.dualRelease],
   );
 
-  /** The Analyze menu's views and links; the phone's "All sections" menu adds the main tabs. */
-  const analyzeMenu = {
+  const sectionsMenu = {
+    sections: PRIMARY_TABS,
     tabs: ANALYZE_TABS,
     activeId: tab,
     label: (t: ShellTab) => say(t.label, t.tactical),
@@ -292,6 +292,10 @@ function Home() {
     onOpenLink: (id: string) => openTab(id),
   };
 
+  const hasActiveSectionTab = [...PRIMARY_TABS, ...ANALYZE_TABS].some(
+    (section) => section.id === tab,
+  );
+
   /**
    * One section tab, in strip and rail alike. `hiddenClass` says where the tab
    * hides when it is not open: a phone shows the open tab only, the strip up
@@ -300,6 +304,7 @@ function Home() {
   function sectionTab(t: ShellTab, hiddenClass: string) {
     const Icon = t.icon;
     const active = tab === t.id;
+    const tabStop = active || (!hasActiveSectionTab && t.id === PRIMARY_TABS[0].id);
     return (
       <button
         key={t.id}
@@ -308,7 +313,7 @@ function Home() {
         role="tab"
         aria-selected={active}
         aria-controls="tab-panel"
-        tabIndex={active ? 0 : -1}
+        tabIndex={tabStop ? 0 : -1}
         onClick={() => openTab(t.id)}
         data-active={active || undefined}
         className={cn(
@@ -329,10 +334,9 @@ function Home() {
   /** Roving focus for the sections: arrow keys, Home, and End move between the tabs on screen. */
   function onTabKeyDown(event: KeyboardEvent<HTMLElement>) {
     // The tabs on screen: a phone shows the open tab only, so the keys stay on
-    // it there; the strip shows the main tabs plus the open Analyze or header
-    // tab; the rail shows every section.
-    const headerExtra = activeExtra && !ANALYZE_TABS.includes(activeExtra) ? [activeExtra] : [];
-    const visible = [...PRIMARY_TABS, ...headerExtra, ...ANALYZE_TABS].filter(
+    // it there; the strip shows the main tabs plus the open Analyze tab; the
+    // rail shows every section.
+    const visible = [...PRIMARY_TABS, ...ANALYZE_TABS].filter(
       (t) => t.id === tab || document.getElementById(`tab-${t.id}`)?.offsetParent !== null,
     );
     const index = visible.findIndex((t) => t.id === tab);
@@ -388,7 +392,7 @@ function Home() {
             className="sticky top-[var(--grok-banner-h,0px)] z-20 border-b border-border bg-bg/90 backdrop-blur lg:bg-bg lg:backdrop-blur-none"
           >
             {/* On a phone the header is two rows: the business, Needs attention
-              and the account, then wording, save status and Ask Pioneer. */}
+              and the account, then wording, save status and Ask Voyager. */}
             <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:flex-wrap sm:px-6">
               <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 sm:flex-none">
                 <span className="inline-flex size-8 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
@@ -424,6 +428,7 @@ function Home() {
                   inline={
                     <button
                       type="button"
+                      id="tab-pioneer"
                       data-header-tab="pioneer"
                       aria-pressed={tab === "pioneer"}
                       onClick={() => openTab("pioneer")}
@@ -445,23 +450,15 @@ function Home() {
               onKeyDown={onTabKeyDown}
               tabCount={TABS.length}
               trailing={
-                // On a phone the strip shows only the open tab, and "All
-                // sections" names every main section and Analyze view, so none
-                // sits off the edge. Up to 1024px the strip keeps every main tab
-                // and Analyze; from there the rail lists every section itself.
-                <>
-                  <div className="hidden sm:block">
-                    <MoreTabsMenu {...analyzeMenu} />
-                  </div>
-                  <div className="sm:hidden">
-                    <MoreTabsMenu {...analyzeMenu} sections={PRIMARY_TABS} />
-                  </div>
-                </>
+                <div className="lg:hidden">
+                  <MoreTabsMenu {...sectionsMenu} />
+                </div>
               }
             >
               {PRIMARY_TABS.map((t) => sectionTab(t, "hidden sm:inline-flex"))}
               {activeExtra &&
                 !ANALYZE_TABS.includes(activeExtra) &&
+                !HEADER_TAB_IDS.includes(activeExtra.id) &&
                 sectionTab(activeExtra, "hidden")}
               <p
                 role="presentation"
@@ -470,7 +467,7 @@ function Home() {
                 Analyze
               </p>
               {ANALYZE_TABS.map((t) => sectionTab(t, "hidden lg:inline-flex"))}
-              {analyzeMenu.links.map((link) => (
+              {sectionsMenu.links.map((link) => (
                 <a
                   key={link.id}
                   href={link.href}
@@ -655,17 +652,17 @@ const TABS: readonly ShellTab[] = TAB_WORDS.map((t) => ({ ...t, icon: TAB_ICONS[
  * Five tabs carry the owner's jobs: where you stand, who works here, who
  * controls what, who knows what, and what to check each month. Procedures
  * open from Who knows what and also sit under Analyze, with how work flows,
- * what could happen, and how Precog scores. From 1024px wide every section
- * sits in a left rail, the Analyze views under their own heading; narrower
- * screens keep the strip and the Analyze or All sections menu. Ask Pioneer is a header button,
- * since a question can come up on any tab. Every tab keeps its id and deep
+ * what could happen, and how Precog scores. From 1024px, every section sits in
+ * the left rail under its heading; narrower screens keep the strip and one All
+ * sections directory. Ask Voyager stays in the header, not the directory.
+ * Every tab keeps its id and deep
  * link, and older ids open the view they became (TAB_ALIASES) or the page
  * they moved to (ROUTE_ALIASES).
  */
 const PRIMARY_TAB_IDS: readonly TabId[] = ["start", "team", "sod", "knowledge", "monthly"];
 const HEADER_TAB_IDS: readonly TabId[] = ["pioneer"];
 /**
- * Value proof and History live on the firm workspace. Analyze links there,
+ * Value proof and History live on the firm workspace. Directory links there,
  * so an owner who is signed out (and has no Firm workspace button) still
  * reaches Value proof on this device.
  */
