@@ -26,6 +26,7 @@ Bracketed values such as `[NEON PITR DAYS]` in this file are facts the owner fil
 | `PRECOG_OPERATOR_IDS`          | User ids of Precog's operators, comma-separated; only they open `/operator` (see Operator)              |
 | QuickBooks                     | Intuit app credentials for read-only sync                                                               |
 | `XAI_API_KEY`                  | Optional server-side AI features                                                                        |
+| `PRECOG_LLM_BASE_URL`          | Self-hosted OpenAI-compatible model in place of xAI, with `PRECOG_LLM_MODEL` and `PRECOG_LLM_API_KEY`   |
 | `LLM_DAILY_PER_USER_PAID`      | Daily model calls per account on the Firm plan or an Assessment inside its window (default 400)         |
 | `LLM_DAILY_FREE_POOL`          | Daily model calls every free account together may spend of the global ceiling (default 500 of 1500)     |
 | `SENTRY_DSN`                   | Error tracker (see Monitoring)                                                                          |

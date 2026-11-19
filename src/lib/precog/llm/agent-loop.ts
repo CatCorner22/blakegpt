@@ -6,6 +6,7 @@
  * lets Grok select complete rules-authored statements to highlight. The
  * model never supplies user-visible claims; the original brief is retained.
  */
+import { modelApiKey } from "./model-endpoint";
 import { executeTools, planTools, type ToolContext } from "./tools";
 import { runSpecialistAgents } from "./multi-agent";
 import { callModel, type LlmAccess } from "./guard.server";
@@ -16,7 +17,12 @@ import {
   type ReasoningStep,
   type ToolResult,
 } from "./types";
-import { briefClaims, parseBriefSelection, type BriefClaim } from "./brief-selection";
+import {
+  briefClaims,
+  briefSelectionSchema,
+  parseBriefSelection,
+  type BriefClaim,
+} from "./brief-selection";
 import { ownerJson, ownerText } from "./prompt-text";
 import {
   chickenLittleCritique,
@@ -153,7 +159,7 @@ export async function runGrokAgentLoop<T extends LocalAgentRun>(
   local: T,
   access: LlmAccess,
 ): Promise<T & ModelOutcome> {
-  if (access.grok !== "allowed" || !process.env.XAI_API_KEY?.trim()) {
+  if (access.grok !== "allowed" || !modelApiKey()) {
     return { ...local, modelStatus: "not-asked" };
   }
   if (local.toolResults.length === 0) return { ...local, modelStatus: "not-asked" };
@@ -175,6 +181,7 @@ export async function runGrokAgentLoop<T extends LocalAgentRun>(
       maxTokens: 256,
       temperature: 0.3,
       jsonObject: true,
+      jsonSchema: briefSelectionSchema(claims),
       feature: "pioneer",
     });
     if (!response) {

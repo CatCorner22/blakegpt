@@ -351,6 +351,17 @@ describe("callModel", () => {
     });
   });
 
+  it("records every attempt when a rejected format is retried", async () => {
+    const { callModel } = await guard();
+    seams.grokChat.mockImplementation(async (_key, opts) => {
+      opts.onUsage({ ...LINE, promptTokens: null, completionTokens: null, outcome: "http_400" });
+      opts.onUsage(LINE);
+      return { text: "brief", model: "m1" };
+    });
+    await callModel({ userId: "u1", grok: "allowed" }, CHAT);
+    expect(seams.insertUsage.mock.calls.map((call) => call[1].outcome)).toEqual(["http_400", "ok"]);
+  });
+
   it("records the local development account with no account, which has no user row", async () => {
     const { callModel } = await guard();
     seams.grokChat.mockImplementation(async (_key, opts) => {
