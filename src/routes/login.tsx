@@ -8,6 +8,8 @@ import { LegalFooter } from "@/components/precog/legal-footer";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/login")({
+  validateSearch: (search: Record<string, unknown>): { error?: string } =>
+    typeof search.error === "string" ? { error: search.error } : {},
   // The Firm plan's price as Stripe charges it, read before the page renders
   // so the first paint (and the served HTML) already carries the figure.
   // Null when the price service fails, so the page never prints a figure
@@ -24,6 +26,7 @@ function Login() {
   // With Stripe connected only its own amount prints; without Stripe the
   // offer's own figure prints; while the price is unknown, no figure.
   const prices = Route.useLoaderData();
+  const { error: searchError } = Route.useSearch();
   const amounts: PlanAmounts | null = prices ? planAmounts(prices.configured, prices.prices) : null;
 
   return (
@@ -42,7 +45,7 @@ function Login() {
           .
         </p>
         {authEnabled && emailAndPasswordEnabled ? (
-          <EmailPasswordForm />
+          <EmailPasswordForm searchError={searchError} />
         ) : (
           <p className="mt-6 text-sm text-muted">Sign-in is off in this environment.</p>
         )}
@@ -64,13 +67,15 @@ function Login() {
  * password is reset by email (`?token=` is the reset link coming back,
  * `?verified=1` the confirmation link).
  */
-function EmailPasswordForm() {
+function EmailPasswordForm({ searchError }: { searchError?: string }) {
   const [mode, setMode] = useState<"sign-in" | "create" | "forgot" | "reset">("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resetToken, setResetToken] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    searchError ? signInErrorMessage(searchError) : null,
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
