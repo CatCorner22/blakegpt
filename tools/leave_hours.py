@@ -41,13 +41,19 @@ def _parse_year_start(value: str) -> tuple[int, int]:
     return month, day
 
 
-def _plan_year(period: str | None, year_start: tuple[int, int]) -> int | None:
+def _plan_year(
+    period: str | None,
+    year_start: tuple[int, int],
+    row_number: int,
+) -> int:
     if not period:
-        return None
+        raise ValueError(f"missing period date in row {row_number}")
     try:
-        period_date = date.fromisoformat(period[:10])
+        period_date = date.fromisoformat(period)
     except ValueError:
-        return None
+        raise ValueError(f"invalid period date in row {row_number}: {period!r}") from None
+    if period_date.isoformat() != period:
+        raise ValueError(f"invalid period date in row {row_number}: {period!r}")
     boundary = date(period_date.year, *year_start)
     return period_date.year if period_date >= boundary else period_date.year - 1
 
@@ -70,7 +76,7 @@ def accrue(
     starting_balance: float | int | str | Decimal,
     used: list[float | int | str | Decimal],
     waiting_period_hours: float | int | str | Decimal = 0,
-    periods: list[str] | None = None,
+    periods: list[str | None] | None = None,
     year_start: str = "01-01",
 ) -> list[PeriodRow]:
     worked_values = [_decimal(value) for value in hours_worked]
@@ -96,14 +102,15 @@ def accrue(
         raise ValueError("periods must have the same number of entries as hours_worked")
     year_start_parts = _parse_year_start(year_start)
 
-    annual_earned_by_year: dict[int | None, Decimal] = {}
+    annual_earned_by_year: dict[int, Decimal] = {}
     rows: list[PeriodRow] = []
     for index, (worked, period_used) in enumerate(zip(worked_values, used_values), 1):
         if worked < 0 or period_used < 0:
             raise ValueError("worked and used hours must not be negative")
-        plan_year = _plan_year(
-            periods[index - 1] if periods else None,
-            year_start_parts,
+        plan_year = (
+            _plan_year(periods[index - 1], year_start_parts, index + 1)
+            if periods is not None
+            else 0
         )
         eligible_worked = max(Decimal("0"), worked - waiting_remaining)
         waiting_remaining = max(Decimal("0"), waiting_remaining - worked)
@@ -173,19 +180,25 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     with args.file.open(newline="", encoding="utf-8") as source:
-        records = list(csv.DictReader(source))
-    rows = accrue(
-        [record["hours_worked"] for record in records],
-        args.rate,
-        args.annual_cap,
-        args.balance_cap,
-        args.carryover_cap,
-        args.starting_balance,
-        [record["hours_used"] for record in records],
-        args.waiting_period_hours,
-        [record["period"] for record in records],
-        args.year_start,
-    )
+        reader = csv.DictReader(source)
+        if "period" not in (reader.fieldnames or []):
+            parser.error("CSV is missing the required period date header")
+        records = list(reader)
+    try:
+        rows = accrue(
+            [record["hours_worked"] for record in records],
+            args.rate,
+            args.annual_cap,
+            args.balance_cap,
+            args.carryover_cap,
+            args.starting_balance,
+            [record["hours_used"] for record in records],
+            args.waiting_period_hours,
+            [record.get("period") for record in records],
+            args.year_start,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     result = [asdict(row) for row in rows]
     if args.json:
         print(
