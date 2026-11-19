@@ -198,6 +198,19 @@
     {
       "tool": "leave",
       "args": {
+        "text": "Give 1 day’s notice, 1 day's notice, 3 days’ notice, or 3 days' notice. Use 2 days of leave."
+      },
+      "result": {
+        "text": "Give 1 day’s notice, 1 day's notice, 3 days’ notice, or 3 days' notice. Use 16.0 hours of leave.",
+        "replacements": 1,
+        "unresolved_day_units": true,
+        "minimum_increment_hours": 1.0,
+        "increment_valid": null
+      }
+    },
+    {
+      "tool": "leave",
+      "args": {
         "text": "Use 0.7 days",
         "shift_hours": 7.3,
         "kind": "statutory_leave",

@@ -40,6 +40,7 @@ for args in (
     add(cliff, args, cliff(args))
 for args in (
     dict(text="Use 1–2 days per month, half-day per year, or 1 to 2 days. Give 3 days notice."),
+    dict(text="Give 1 day’s notice, 1 day's notice, 3 days’ notice, or 3 days' notice. Use 2 days of leave."),
     dict(text="Use 0.7 days", shift_hours=7.3, kind="statutory_leave", usage_increment_hours=.2),
 ):
     add(leave, args, leave(args))

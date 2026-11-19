@@ -193,7 +193,11 @@ export function leave({
       period: string | undefined,
       offset: number,
     ) => {
-      if (/^[- ](?:old|long|period|notice)\b/i.test(source.slice(offset + match.length)))
+      if (
+        /^(?:['’]s?\s+notice|[- ](?:old|long|period|notice))\b/i.test(
+          source.slice(offset + match.length),
+        )
+      )
         return match;
       replacements++;
       const quantity = hours(half ? "0.5" : amount);
