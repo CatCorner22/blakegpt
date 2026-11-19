@@ -76,7 +76,7 @@ The GPU configs target Qwen3-8B and Qwen3-32B. The trainer pins each base revisi
 
 ### Colab Pro and Kaggle
 
-The Colab default is **combined**: one adapter sees both tool families. **Both** still trains two separate adapters. The combined run saves aggregate and per-family held-out scores in `metrics.json`; each run also keeps `training.log` beside its adapter, even when the worker fails. Custom combined datasets need `combined-train.jsonl`, `a1-eval.jsonl`, and `a2-eval.jsonl`.
+The Colab default is **combined**: one adapter sees both tool families and Precog's contract and license notice examples. **Both** still trains two separate adapters. The combined run saves aggregate and per-family held-out scores for A1 and A2 in `metrics.json`; each run also keeps `training.log` beside its adapter, even when the worker fails. Custom combined datasets need `combined-train.jsonl`, `a1-eval.jsonl`, and `a2-eval.jsonl`.
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CatCorner22/controlguard/blob/main/llm/colab/train_adapters.ipynb)
 

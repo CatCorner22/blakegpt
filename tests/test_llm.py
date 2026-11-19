@@ -35,12 +35,16 @@ def test_held_out_sets_and_eval_scoring(tmp_path: Path) -> None:
 
 def test_combined_union_and_partial_family_metrics(tmp_path: Path) -> None:
     generate(tmp_path, 8, 8)
-    rows = load_rows(tmp_path / "combined-train.jsonl")
+    combined = load_rows(tmp_path / "combined-train.jsonl")
+    rows = [row for row in combined if fields(row["expected"])["name"] != "cliff"]
+    extra = [fields(row["expected"]) for row in combined if fields(row["expected"])["name"] == "cliff"]
+    assert len(extra) == 3
+    assert {"term_days", "term_months"} <= {key for row in extra for key in fields(row["arguments"])}
     for index, family in enumerate(("a1", "a2")):
         assert [row["expected"] for row in rows[index::2]] == [
             row["expected"] for row in load_rows(tmp_path / f"{family}-train.jsonl")]
     sets = evaluation_sets(tmp_path, "combined", 4)
-    assert all(len(items(row["tools"], "tools")) == 6 for row in rows + sets["a1"] + sets["a2"])
+    assert all(len(items(row["tools"], "tools")) == 7 for row in combined + sets["a1"] + sets["a2"])
     metrics: Fields = {}
     perfect = [[completion_for(row) for row in family_rows] for family_rows in sets.values()]
     with patch("controlguard.llm.train.predictions", side_effect=perfect):

@@ -104,6 +104,20 @@ def with_combined_tools(row: Fields) -> Fields:
     return {**row, "tools": tools_for(ADAPTERS["combined"])}
 
 
+def precog_example(index: int) -> Example:
+    rand = random.Random(200_003 + index)
+    start = f"{rand.randrange(2024, 2035)}-{rand.randrange(1, 13):02d}-{rand.randrange(1, 32):02d}"
+    notice = rand.choice((30, 45, 60, 75, 90))
+    if index % 2:
+        term = rand.choice((90, 180, 365, 730))
+        return Example("cliff", f"A contract starts on {start} and runs for {term} days. "
+                       f"We need {notice} days' notice. Find the deadline.",
+                       {"start": start, "notice_days": notice, "term_days": term})
+    term = rand.randrange(1, 49)
+    return Example("cliff", f"A {term}-month license starts on {start}. The notice period is {notice} days.",
+                   {"start": start, "notice_days": notice, "term_months": term})
+
+
 def generate(output: Path, train_count: int, eval_count: int) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for adapter in FAMILIES:
@@ -118,6 +132,8 @@ def generate(output: Path, train_count: int, eval_count: int) -> None:
             for family, index in pairs:
                 row = record(exercise(family, split, index), family)
                 print(encode(with_combined_tools(row)), file=stream)
+                if split == "train" and family == "a2" and index % 3 == 0:
+                    print(encode(record(precog_example(index), "combined")), file=stream)
 
 
 def main() -> None:

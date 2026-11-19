@@ -44,9 +44,11 @@ SCHEMAS = {
     "skim": shape({"tolerance": NUM, "invoices": {"type": "array", "items":
                    shape({"invoice_unit_price": NUM, "po_unit_price": NUM},
                          "invoice_unit_price", "po_unit_price")}}, "tolerance", "invoices"),
+    "cliff": shape({"start": TEXT, "notice_days": INT, "term_days": INT, "term_months": INT},
+                   "start", "notice_days"),
 }
 FAMILIES = {"a1": ("policy", "leave"), "a2": ("sod", "triage", "price", "skim")}
-ADAPTERS = {**FAMILIES, "combined": FAMILIES["a1"] + FAMILIES["a2"]}
+ADAPTERS = {**FAMILIES, "combined": FAMILIES["a1"] + FAMILIES["a2"] + ("cliff",)}
 FINAL = shape({"status": choice("complete", "needs_input")}, "status")
 
 
