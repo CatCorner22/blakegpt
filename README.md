@@ -1,5 +1,7 @@
 # office-compliance-assistant
 
+BlakeGPT is the master app; Precog is its compliance module for internal controls and continuity, and Amanda's dental compliance tools are another module. See the [Samurai Cat design standard](design/SAMURAI_CAT.md).
+
 ## Layout
 
 - `knowledge/federal/`: federal knowledge cards
