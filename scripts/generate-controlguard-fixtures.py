@@ -13,6 +13,7 @@ from controlguard.risk import GATES, sod, triage
 
 root = Path(__file__).resolve().parents[1] / "src/lib/precog"
 catalogs = json.loads(Path(controlguard.__file__).with_name("catalogs.json").read_text())
+catalogs["TW"] = {key: text.replace("e.g.,", "for example,") for key, text in catalogs["TW"].items()}
 (root / "controlguard-catalogs.json").write_text(
     json.dumps({key: catalogs[key] for key in ("C", "DEF", "O", "TW")}, indent=2, ensure_ascii=False) + "\n"
 )

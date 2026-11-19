@@ -159,10 +159,10 @@
   },
   "TW": {
     "TW-01": "CUSUM Positive-Skew Vendor PO-Tolerance Skim Detector ($\\text{PositiveSkew} \\ge 0.70 \\land \\text{CeilingHug} \\ge 0.50$).",
-    "TW-02": "Split-Transaction Threshold Bypass Detector (e.g., multiple $\\$49$ write-offs under a $\\$50$ cap, or sequential invoices split below a $\\$5,000$ dual-release limit within $72.0\\text{ hours}$).",
+    "TW-02": "Split-Transaction Threshold Bypass Detector (for example, multiple $\\$49$ write-offs under a $\\$50$ cap, or sequential invoices split below a $\\$5,000$ dual-release limit within $72.0\\text{ hours}$).",
     "TW-03": "Dormant Canary Vendor Trap (seeded inactive vendor in ERP; any edit, reactivation, or payment initiation fires an instant P1 SMS/email alert to Owner).",
     "TW-04": "Seeded $\\$108$ Reviewer Error Trap (deliberate non-destructive reconciliation variance seeded to verify whether an outsourced CPA or manager actually inspects support vs. rubber-stamping).",
-    "TW-05": "Employee-Initials & Levenshtein Lookalike Vendor Trap (flags new vendors matching employee initials, home addresses, payroll routing/account numbers, or Levenshtein edit distance $\\le 2$ from major legitimate suppliers, e.g., *Power* $\\$1.4\\text{M}$ / *Ginsberg* \"Internal Recovery Systems\").",
+    "TW-05": "Employee-Initials & Levenshtein Lookalike Vendor Trap (flags new vendors matching employee initials, home addresses, payroll routing/account numbers, or Levenshtein edit distance $\\le 2$ from major legitimate suppliers, for example, *Power* $\\$1.4\\text{M}$ / *Ginsberg* \"Internal Recovery Systems\").",
     "TW-06": "Bank-Account Flip Velocity Trap (vendor or employee direct-deposit bank coordinates changed within $14$ days prior to a payout $> \\$2,500$ and flipped back).",
     "TW-07": "Weekend / After-Hours Manual Journal Entry & Deleted-Check Sequence Gap Detector (*Cormier*).",
     "TW-08": "Balance-Sheet Accrual, Suspense & Inventory Expense-Parking Velocity Backstop (catches the *Macy's Form 8-K $\\$151\\text{M}$* / *Chappell* scheme where cash outflows or personal card charges are parked in balance-sheet accrual/inventory accounts so monthly P&L margins appear normal).",
