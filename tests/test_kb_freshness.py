@@ -82,3 +82,21 @@ def test_discover_cards_loads_only_markdown_cards() -> None:
     fixture_dir = Path(__file__).parent / "fixtures/knowledge"
     cards = discover_cards(fixture_dir)
     assert {card.id for card in cards} == {"sample-fresh", "sample-unverified"}
+
+
+def test_discover_cards_skips_markdown_without_front_matter(tmp_path: Path) -> None:
+    files = {
+        "INDEX.md": "# Index\n",
+        "sources/source.md": "# Source notes\n",
+        "section/README.md": "# Section\n",
+        "SPEC_CHECKS.md": "# Checks\n",
+        "card.md": "---\nid: sample\ntitle: Sample\njurisdiction: federal\n"
+        "status: verified\nlast_verified: 2026-01-01\n---\n",
+    }
+    for name, content in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    cards = discover_cards(tmp_path)
+    assert [card.id for card in cards] == ["sample"]

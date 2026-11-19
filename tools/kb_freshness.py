@@ -185,7 +185,13 @@ def check_federal_register(card: Card) -> list[FederalRegisterDocument]:
 
 
 def discover_cards(directory: Path) -> list[Card]:
-    return [load_card(path) for path in sorted(directory.glob("**/*.md"))]
+    cards: list[Card] = []
+    for path in sorted(directory.glob("**/*.md")):
+        with path.open(encoding="utf-8") as source:
+            if source.readline().strip() != "---":
+                continue
+        cards.append(load_card(path))
+    return cards
 
 
 def main() -> int:
