@@ -3,17 +3,17 @@
 @import "./components/precog/process-map/tactical.css";
 
 @theme {
-  /* Calm workspace: paper, ink, one teal accent. Colour means status or action. */
-  --color-bg: #f6f7f8;
+  /* Calm workspace: white and mist, ink, one teal accent. Colour means status or action. */
+  --color-bg: #f4f7f9;
   --color-surface: #ffffff;
-  --color-elevated: #f1f3f5;
-  --color-panel: #eaeef2;
+  --color-elevated: #eef3f6;
+  --color-panel: #e5edf2;
   --color-fg: #16202a;
   --color-muted: #52606d;
   /* 4.5:1 or better on every panel colour, the selected card included. */
   --color-subtle: #5b6773;
-  --color-border: #dde2e7;
-  --color-border-strong: #c3cad2;
+  --color-border: #d9e2e8;
+  --color-border-strong: #bfcbd4;
   --color-primary: #0f766e;
   --color-primary-fg: #ffffff;
   --color-accent: #115e59;
@@ -118,7 +118,7 @@
   stroke-width: 3;
 }
 
-/* ── React Flow chrome (minimap + controls) on the paper canvas ── */
+/* ── React Flow chrome (minimap + controls) on the mist canvas ── */
 .react-flow .react-flow__minimap {
   background: color-mix(in oklab, var(--color-surface) 92%, transparent);
   border: 1px solid var(--color-border-strong);
