@@ -15,8 +15,8 @@ export const extractControlGuardFacts = createServerFn({ method: "POST" })
   .validator((data: { prompt: string }) => request.parse(data))
   .handler(async ({ data, context }) => {
     const config = controlguardProvider();
-    const user = context.llm.userId;
-    if (!config || !user) return null;
+    const { userId: user, grok } = context.llm;
+    if (!config || !user || grok === "rate_limited") return null;
     try {
       const { budget } = await spendCallerDailyUnit(user);
       if (budget !== "allowed") return null;
