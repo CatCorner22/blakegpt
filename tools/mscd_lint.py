@@ -206,7 +206,7 @@ def lint(
     )
     xref_pattern = re.compile(
         rf"\b(?:sections?|paragraph|articles?|clauses?)\s+{xref_target}"
-        rf"(?:\s*(?:,|and)\s*{xref_target})*",
+        rf"(?:\s*(?:,|and)\s*{xref_target})*(?![A-Za-z0-9])",
         re.IGNORECASE,
     )
     for match in xref_pattern.finditer(text):

@@ -40,7 +40,10 @@ def test_numeric_cross_reference_rule() -> None:
     assert "R-NUMERIC-XREF" in rules("See Section 3.2 and paragraph 2(b).")
     assert "R-NUMERIC-XREF" in rules("Sections 4 and 5 apply.")
     assert "R-NUMERIC-XREF" in rules("Article IV and clause 7 apply.")
+    assert "R-NUMERIC-XREF" in rules("Section IV. applies.")
     assert "R-NUMERIC-XREF" not in rules('See the section titled "Payment".')
+    assert "R-NUMERIC-XREF" not in rules("This paragraph describes payment.")
+    assert "R-NUMERIC-XREF" not in rules("Section IVetera describes payment.")
 
 
 def test_outline_hierarchy_and_invalid_labels() -> None:
