@@ -28,9 +28,9 @@ Open <http://127.0.0.1:8765>. Each form includes an example JSON object. The CLI
 | `policy` | Check a supplied title and flag listed lexical patterns and possible passive voice. It does not infer a contract party's duty or rewrite legal terms. |
 | `handbook` | Check supplied facts against five guardrails and a Montana branch. `asserted` means the caller affirmed the listed facts, not that the tool established compliance. |
 | `rules` | Check structured contract and invoice assertions. The tool does not extract facts from contracts, redline clauses, or send demands. |
-| `catalog` | Browse C, DEF, O, TW, CON, FT, RULE and INV-TRAP reference data. FT entries identify missing rules; catalog citations are not independently verified unless the review says so. |
+| `catalog` | Browse C, DEF, O, TW, CON, FT, RULE and INV-TRAP reference data. FT entries identify missing rules. The review lists the citations it checks. |
 
-To request a triage credit or SoD factor below 1.00, set all three `compensating_has_*` flags (`actor`, `cadence`, `artifact`) to true and supply the same `subject` and `control` used in a ledger sign-off. Use a control key unique to the finding and asset. At 336 elapsed hours, the tool removes the reduction and recomputes the score. A local operator can replace the database or remove its tail; preserve and independently anchor a trusted ledger head before relying on the chain.
+To request a triage credit or SoD factor below 1.00, set all three `compensating_has_*` flags (`actor`, `cadence`, `artifact`) to true. Enter the `subject` and `control` that the ledger sign-off records. Use a control key unique to the finding and asset. At 336 elapsed hours, the tool removes the reduction and recomputes the score. A local operator can replace the database or remove its tail; preserve and independently anchor a trusted ledger head before relying on the chain.
 
 ```sh
 printf '%s\n' '{"action":"append","subject":"role-1","control":"payables-C4-1","signer":"Owner","actor":"Independent reviewer","cadence":"Weekly","artifact":"Exception log reference 001"}' |
@@ -40,7 +40,7 @@ printf '%s\n' '{"action":"verify"}' | python -m controlguard run ledger
 
 ## Use a local model
 
-With no model configuration, **Ask ControlGuard** uses a rule-based router. Select A1 and enter `Convert: Staff earn 1 day/month.`, or enter an allowed tool name followed by a JSON object. A1 handles policy and leave. A2 handles triage, conflicts, invoice pricing and PO tolerance.
+With no model configuration, **Ask ControlGuard** uses a rule-based router. Select A1 and enter `Convert: Staff earn 1 day/month.`, or enter a tool name, a space and a JSON object. A1 handles policy and leave. A2 handles triage, conflicts, invoice pricing and PO tolerance.
 
 To connect a local server, set the OpenAI-compatible base URL and the model IDs before starting the web app:
 
@@ -50,7 +50,7 @@ CONTROLGUARD_MODEL_A1=controlguard-a1 CONTROLGUARD_MODEL_A2=controlguard-a2 \
 python -m controlguard web --port 8765
 ```
 
-Use the IDs your server exposes, or set `CONTROLGUARD_MODEL` for both groups. Enable OpenAI-style function calls and JSON Schema responses on the server. For example, vLLM can serve compatible LoRA adapters with `--enable-lora`, `--lora-modules`, and Qwen/Hermes tool calling with `--enable-auto-tool-choice --tool-call-parser hermes`. llama.cpp and Ollama must expose the same capabilities for the chosen release and model format; they may require adapter format conversion. The mock HTTP test covers this protocol; no real vLLM, llama.cpp or Ollama instance was verified here.
+Use the IDs your server exposes, or set `CONTROLGUARD_MODEL` for both groups. Enable OpenAI-style function calls and JSON Schema responses on the server. For example, vLLM can serve compatible LoRA adapters with `--enable-lora`, `--lora-modules`, and Qwen/Hermes tool calling with `--enable-auto-tool-choice --tool-call-parser hermes`. llama.cpp and Ollama must expose the same capabilities for the chosen release and model format; they may require adapter format conversion. The HTTP test uses a mock endpoint, not vLLM, llama.cpp or Ollama.
 
 The panel limits the tools the model can call. It validates tool arguments and runs calculations in Python. It never gives the model ledger access or lets the model's prose stand in for an engine result. It removes common SSN, account, email, phone and address patterns before each request. Pattern matching misses some personal data and may remove valid numbers. Do not submit real personal data. The local server may log requests. The HTTP client connects only to numeric loopback addresses and does not follow redirects. Neither the panel nor the ledger implements production authentication.
 
@@ -78,7 +78,7 @@ Preview a single Qwen3-8B job without spending:
 python scripts/hf_job.py --adapter a1 --private-model-repo OWNER/REPO
 ```
 
-The recipe requests one 24 GB A10G, 250 steps per adapter, and a four-hour limit. Budget 1–3 hours per adapter as an unbenchmarked estimate: $1.50–$4.50 per adapter at [Hugging Face's listed $1.50/hour](https://huggingface.co/docs/hub/en/jobs-pricing), with a $6 compute cap per run at that rate. The separate `--launch` option starts paid compute and requires an authenticated Hugging Face account and private repository access. No job ran as part of this delivery.
+The recipe requests one 24 GB A10G, 250 steps per adapter, and a four-hour limit. Budget 1–3 hours per adapter as an estimate, not a benchmark. [Hugging Face lists an hourly rate of $1.50](https://huggingface.co/docs/hub/en/jobs-pricing). At that rate, 1–3 hours costs $1.50–$4.50. The four-hour limit caps compute charges at $6. The separate `--launch` option starts paid compute and requires an authenticated Hugging Face account and private repository access. No job ran as part of this delivery.
 
 ## Verify the code
 
