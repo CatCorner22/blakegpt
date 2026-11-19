@@ -34,6 +34,16 @@ def test_contract_fixes_doublet_when_modal_is_already_shall() -> None:
     assert result.fixed == ["thirty (30) -> 30"]
 
 
+def test_number_doublet_replaces_the_complete_number_word_phrase() -> None:
+    hundred = guard("one hundred (100) days", "contract")
+    hyphenated = guard("twenty-one (21) days", "contract")
+
+    assert hundred.text.startswith("100 days")
+    assert hundred.fixed == ["one hundred (100) -> 100"]
+    assert hyphenated.text.startswith("21 days")
+    assert hyphenated.fixed == ["twenty-one (21) -> 21"]
+
+
 def test_contract_fixes_will_for_an_explicitly_defined_party() -> None:
     result = guard("Vendor will provide written notice.", "contract", ["Vendor"])
 

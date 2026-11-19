@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.mscd_lint import (
-    NUMBER_DOUBLET_PATTERN,
+    NUMBER_WORDS,
     Finding,
     _parties,
     lint,
@@ -22,6 +22,12 @@ class GuardResult:
 
 
 _QUOTE_LINE = re.compile(r"^\s*>")
+_NUMBER_WORD = rf"(?:{NUMBER_WORDS.replace(' ', '|')})"
+_NUMBER_WORD_PHRASE_DOUBLET = re.compile(
+    rf"\b{_NUMBER_WORD}(?:(?:\s+(?:and\s+)?|-){_NUMBER_WORD})*"
+    r"\s+\(\s*\d+\s*\)",
+    re.IGNORECASE,
+)
 _THE_PARTY = re.compile(r"\bThe\s+([A-Z][A-Za-z'’&-]*)\b")
 _THE_PARTY_MODAL = re.compile(
     r"\bThe\s+[A-Z][A-Za-z'’&-]*\s+(?P<verb>(?i:must|will))\b"
@@ -148,7 +154,7 @@ def guard(
     )
 
     edits: list[tuple[int, int, str, str]] = []
-    for match in NUMBER_DOUBLET_PATTERN.finditer(reply):
+    for match in _NUMBER_WORD_PHRASE_DOUBLET.finditer(reply):
         if _overlaps(match.start(), match.end(), protected_ranges):
             continue
         digits = re.search(r"\(\s*(\d+)\s*\)$", match.group())
