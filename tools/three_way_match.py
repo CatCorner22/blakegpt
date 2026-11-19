@@ -92,14 +92,16 @@ def match(
 
     results: list[MatchRow] = []
     invoice_indexes: dict[str, list[int]] = defaultdict(list)
+    invoiced_quantities: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
     for index, row in enumerate(parsed_invoices):
         key = (str(row["po"]), str(row["line"]))
+        invoiced_quantities[key] += row["qty_decimal"]
         po = purchase_orders.get(key)
         if po is None:
             status = "NO-PO"
         elif key not in received:
             status = "NO-RECEIPT"
-        elif row["qty_decimal"] > received[key]:
+        elif invoiced_quantities[key] > received[key]:
             status = "QTY-OVER-RECEIVED"
         else:
             po_price = po["unit_price"]
