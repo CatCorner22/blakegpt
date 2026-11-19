@@ -113,7 +113,11 @@ def accrue(
             if periods is not None
             else 0
         )
-        if carryover_cap is not None and plan_year != previous_plan_year:
+        if (
+            carryover_cap is not None
+            and previous_plan_year is not None
+            and plan_year != previous_plan_year
+        ):
             balance = year_end_carryover(balance, carryover_cap)
         previous_plan_year = plan_year
         eligible_worked = max(Decimal("0"), worked - waiting_remaining)

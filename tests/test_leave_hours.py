@@ -134,6 +134,22 @@ def test_carryover_cap_applies_before_january_accrual() -> None:
     assert rows[1].balance == Decimal("22.00")
 
 
+def test_carryover_cap_does_not_reduce_midyear_opening_balance() -> None:
+    rows = accrue(
+        ["40"],
+        "40",
+        None,
+        None,
+        "20",
+        "50",
+        ["30"],
+        periods=["2025-06-30"],
+    )
+
+    assert rows[0].earned == Decimal("1.00")
+    assert rows[0].balance == Decimal("21.00")
+
+
 def test_rounding_uses_half_up_per_period() -> None:
     assert run_accrual(["1"], rate="8")[0].earned == Decimal("0.13")
 
