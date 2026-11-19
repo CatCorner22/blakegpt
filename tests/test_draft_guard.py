@@ -65,6 +65,19 @@ def test_contract_modal_fixes_only_known_parties_and_not_before_be() -> None:
     assert "must -> shall" not in insured_result.fixed
 
 
+def test_cited_quotes_are_preserved_but_uncited_drafts_are_fixed() -> None:
+    cited = '"The Vendor must provide thirty (30) days." (29 CFR 1910.1030(f)(2))'
+    uncited = "“The Vendor must provide thirty (30) days.”"
+
+    cited_result = guard(cited, "contract")
+    uncited_result = guard(uncited, "contract")
+
+    assert cited_result.text.startswith(cited)
+    assert cited_result.fixed == []
+    assert "“The Vendor shall provide 30 days.”" in uncited_result.text
+    assert uncited_result.fixed == ["must -> shall", "thirty (30) -> 30"]
+
+
 def test_guard_does_not_change_quoted_lines_or_backtick_text() -> None:
     quoted = "> within thirty (30) days"
     quoted_result = guard(quoted, "contract")

@@ -22,6 +22,11 @@ class GuardResult:
 
 
 _QUOTE_LINE = re.compile(r"^\s*>")
+_CITED_QUOTE = re.compile(
+    r'(?P<quote>"[^"\r\n]*"|“[^”\r\n]*”)\s*'
+    r"\((?:T\.C\.A\.|Tenn\.|\d+\s+(?:CFR|C\.F\.R\.|U\.S\.C\.)|[^)]*§)[^)]*\)",
+    re.IGNORECASE,
+)
 _NUMBER_WORD = rf"(?:{NUMBER_WORDS.replace(' ', '|')})"
 _NUMBER_WORD_PHRASE_DOUBLET = re.compile(
     rf"\b{_NUMBER_WORD}(?:(?:\s+(?:and\s+)?|-){_NUMBER_WORD})*"
@@ -88,6 +93,10 @@ def _blockquote_ranges(text: str) -> list[tuple[int, int]]:
             ranges.append((offset, offset + len(line)))
         offset += len(line)
     return ranges
+
+
+def _cited_quote_ranges(text: str) -> list[tuple[int, int]]:
+    return [match.span("quote") for match in _CITED_QUOTE.finditer(text)]
 
 
 def _backtick_ranges(text: str) -> list[tuple[int, int]]:
@@ -171,7 +180,8 @@ def guard(
 
     quote_ranges = _blockquote_ranges(reply)
     code_ranges = _backtick_ranges(reply)
-    protected_ranges = sorted(quote_ranges + code_ranges)
+    cited_quote_ranges = _cited_quote_ranges(reply)
+    protected_ranges = sorted(quote_ranges + code_ranges + cited_quote_ranges)
     party_source = _mask_ranges(reply, protected_ranges)
     defined_parties = _parties(party_source, parties)
     inferred_parties = {match.group(1) for match in _THE_PARTY.finditer(party_source)}
