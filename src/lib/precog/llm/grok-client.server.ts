@@ -1,3 +1,5 @@
+import { modelEndpoint } from "./model-endpoint";
+
 export interface GrokChatOptions {
   messages: {
     role: "system" | "user" | "assistant";
@@ -6,6 +8,12 @@ export interface GrokChatOptions {
   maxTokens: number;
   temperature: number;
   jsonObject?: boolean;
+  /**
+   * A JSON schema a self-hosted server (vLLM, TGI, Ollama) enforces while it
+   * decodes, so a small model cannot drop a field or name an unknown id.
+   * Sent only to an OpenAI-compatible endpoint; xAI keeps json_object.
+   */
+  jsonSchema?: { name: string; schema: Record<string, unknown> };
   /** Which feature made the call, for the usage log line only; never sent upstream. */
   feature?: string;
   /**
@@ -43,20 +51,31 @@ export async function grokChat(
   opts: GrokChatOptions,
 ): Promise<GrokChatResult | null> {
   if (!apiKey.trim()) return null;
+  const endpoint = modelEndpoint();
 
   const body: {
     model: string;
     max_tokens: number;
     temperature: number;
     messages: GrokChatOptions["messages"];
-    response_format?: { type: "json_object" };
+    response_format?:
+      | { type: "json_object" }
+      | {
+          type: "json_schema";
+          json_schema: { name: string; strict: true; schema: Record<string, unknown> };
+        };
   } = {
-    model: GROK_MODEL,
+    model: endpoint.model,
     max_tokens: opts.maxTokens,
     temperature: opts.temperature,
     messages: opts.messages,
   };
-  if (opts.jsonObject) body.response_format = { type: "json_object" };
+  if (opts.jsonSchema && endpoint.provider === "openai-compatible") {
+    body.response_format = {
+      type: "json_schema",
+      json_schema: { name: opts.jsonSchema.name, strict: true, schema: opts.jsonSchema.schema },
+    };
+  } else if (opts.jsonObject) body.response_format = { type: "json_object" };
 
   const started = Date.now();
   const usage = (
@@ -82,19 +101,19 @@ export async function grokChat(
   };
 
   try {
-    const response = await fetch("https://api.x.ai/v1/chat/completions", {
+    const response = await fetch(endpoint.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(GROK_TIMEOUT_MS),
+      signal: AbortSignal.timeout(endpoint.timeoutMs),
     });
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       console.error(`[grok] upstream ${response.status}: ${redact(detail).slice(0, 300)}`);
-      usage(`http_${response.status}`, GROK_MODEL);
+      usage(`http_${response.status}`, endpoint.model);
       return null;
     }
     const result = (await response.json()) as {
@@ -102,7 +121,7 @@ export async function grokChat(
       model?: string;
       usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
     };
-    const model = result.model?.trim() || GROK_MODEL;
+    const model = result.model?.trim() || endpoint.model;
     const text = result.choices?.[0]?.message?.content?.trim();
     if (!text) {
       console.error("[grok] upstream returned no text");
@@ -114,18 +133,15 @@ export async function grokChat(
   } catch (error) {
     const name = error instanceof Error ? error.name : "Error";
     const timedOut = name === "TimeoutError" || name === "AbortError";
-    usage(timedOut ? "timeout" : "error", GROK_MODEL);
+    usage(timedOut ? "timeout" : "error", endpoint.model);
     console.error(
       timedOut
-        ? `[grok] no answer within ${GROK_TIMEOUT_MS / 1000}s`
+        ? `[grok] no answer within ${endpoint.timeoutMs / 1000}s`
         : `[grok] request failed: ${name}: ${redact(error instanceof Error ? error.message : String(error))}`,
     );
     return null;
   }
 }
-
-const GROK_MODEL = "grok-4.5";
-const GROK_TIMEOUT_MS = 20_000;
 
 function tokenCount(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -137,5 +153,8 @@ function logUsage(line: GrokUsageLine): void {
 
 /** Masks anything shaped like an API key, in case an upstream error echoes one. */
 function redact(text: string): string {
-  return text.replace(/xai-[A-Za-z0-9_-]+/g, "xai-…");
+  return text
+    .replace(/xai-[A-Za-z0-9_-]+/g, "xai-…")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1…")
+    .replace(/\b(hf|sk)[-_][A-Za-z0-9_-]{8,}/g, "$1-…");
 }

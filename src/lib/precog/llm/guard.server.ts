@@ -1,3 +1,4 @@
+import { modelApiKey } from "./model-endpoint";
 import { assertSameSiteRequest } from "@/lib/auth/isolation.server";
 import { assertExpectedAccount } from "@/lib/auth/expected-account";
 import { DEV_USER_ID, authConfigured, getSessionUser } from "@/lib/auth/verify.server";
@@ -89,7 +90,7 @@ export async function resolveLlmAccess(
     throw new TooManyRequestsError(userResult.retryAfterMs, TRY_AGAIN);
   }
 
-  if (!process.env.XAI_API_KEY?.trim()) return { userId, grok: "no_api_key" };
+  if (!modelApiKey()) return { userId, grok: "no_api_key" };
   if (!userId) return { userId, grok: "unauthenticated" };
   if (!options.unmetered && !userAllowed) return { userId, grok: "rate_limited" };
   if (!options.unmetered && !globalLimiter.take("global").allowed)
@@ -114,7 +115,7 @@ export async function callModel(
   access: LlmAccess,
   opts: GrokChatOptions,
 ): Promise<GrokChatResult | null> {
-  const apiKey = process.env.XAI_API_KEY?.trim();
+  const apiKey = modelApiKey();
   if (access.grok !== "allowed" || !access.userId || !apiKey) return null;
   const { budget, plan } = await spendCallerDailyUnit(access.userId);
   if (budget === "allowed") return recordedCall(access.userId, apiKey, opts);

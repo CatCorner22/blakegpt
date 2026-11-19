@@ -46,6 +46,34 @@ export function parseBriefSelection(text: string, claims: readonly BriefClaim[])
 }
 
 /**
+ * The selection protocol as a JSON schema: version 1, at most three distinct
+ * ids drawn from these claims, nothing else. A server that enforces it while
+ * decoding returns only what parseBriefSelection accepts.
+ */
+export function briefSelectionSchema(claims: readonly BriefClaim[]): {
+  name: string;
+  schema: Record<string, unknown>;
+} {
+  return {
+    name: "brief_selection",
+    schema: {
+      type: "object",
+      properties: {
+        version: { type: "integer", enum: [1] },
+        highlightIds: {
+          type: "array",
+          items: { type: "string", enum: claims.map((claim) => claim.id) },
+          maxItems: 3,
+          uniqueItems: true,
+        },
+      },
+      required: ["version", "highlightIds"],
+      additionalProperties: false,
+    },
+  };
+}
+
+/**
  * The selected statements, in the rules engine's order, and nothing else.
  * The screen uses the ids. This string is the check that a selection cannot
  * grow a second memo or any words the rules did not write.
