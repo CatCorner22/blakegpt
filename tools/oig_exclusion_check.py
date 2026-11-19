@@ -145,8 +145,21 @@ def _read_csv(
         reader = csv.DictReader(source)
         headers = reader.fieldnames or []
         original_by_normalized: dict[str, str] = {}
+        duplicate_headers: list[tuple[str, str]] = []
         for header in headers:
-            original_by_normalized.setdefault(_normalize_header(header), header)
+            normalized = _normalize_header(header)
+            original = original_by_normalized.get(normalized)
+            if original is None:
+                original_by_normalized[normalized] = header
+            else:
+                duplicate_headers.append((original, header))
+        if duplicate_headers:
+            details = "; ".join(
+                f"{first!r} and {second!r}" for first, second in duplicate_headers
+            )
+            raise ValueError(
+                f"{source_name} CSV has duplicate headers after normalization: {details}"
+            )
         selected: dict[str, str | None] = {}
         missing: list[str] = []
         for canonical, accepted in aliases.items():

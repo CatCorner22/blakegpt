@@ -140,6 +140,28 @@ def test_cli_rejects_roster_without_usable_identifiers(
     assert "npi" in error
 
 
+def test_cli_rejects_duplicate_headers_after_normalization(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    staff = tmp_path / "staff.csv"
+    leie = Path(__file__).parent / "fixtures" / "leie.csv"
+    staff.write_text(
+        "Business Name,NPI,npi\nSample Dental LLC,1234567890,1234567890\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.argv", ["oig_exclusion_check", str(staff), "--leie", str(leie)])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert "duplicate headers after normalization" in error
+    assert "'NPI' and 'npi'" in error
+
+
 def test_download_target_cannot_resolve_to_staff_input(
     tmp_path: Path,
     monkeypatch,
