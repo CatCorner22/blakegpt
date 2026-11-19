@@ -4,6 +4,7 @@
  * prompt wraps owner-typed text in <owner_text> (or <owner_data>) tags and
  * tells the model it is data, never instructions.
  */
+import { modelApiKey } from "./model-endpoint";
 import type { LlmAccess } from "./guard.server";
 import { DailyLimitReached, type DailyLimitInfo, type GrokAccess } from "./types";
 
@@ -71,7 +72,7 @@ export async function withGrokFallback<T extends object>(
   ask: (access: LlmAccess) => Promise<T | null>,
 ): Promise<T & GrokFallbackStatus> {
   const grok = access.grok;
-  if (grok !== "allowed" || !process.env.XAI_API_KEY?.trim() || !worthAsking) {
+  if (grok !== "allowed" || !modelApiKey() || !worthAsking) {
     return { ...local, grokStatus: grok };
   }
   try {

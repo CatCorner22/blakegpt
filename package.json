@@ -19,6 +19,7 @@
     "link:stripe-customer": "node scripts/link-stripe-customer.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "eval:llm": "PRECOG_LLM_EVAL=1 vitest run src/lib/precog/llm/model-eval.live.test.ts",
     "test:watch": "vitest",
     "test:postgres": "npm run test:postgres:migrations && npm run test:postgres:quota && npm run test:postgres:lifecycle && npm run test:postgres:evidence && npm run test:postgres:races",
     "test:postgres:migrations": "node scripts/test-migrations-postgres.mjs",
