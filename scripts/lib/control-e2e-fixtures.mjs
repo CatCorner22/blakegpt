@@ -32,7 +32,7 @@ export async function seedControlFixture(base, secret) {
       [randomUUID(), id, token],
     );
     cookies[role] = {
-      name: "__Host-grok-auth.session_token",
+      name: "__Host-precog-auth.session_token",
       value: encodeURIComponent(
         token + "." + createHmac("sha256", secret).update(token).digest("base64"),
       ),

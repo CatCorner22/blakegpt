@@ -12,7 +12,6 @@ import { installGlobalErrorReporting } from "@/lib/observability/report-browser"
 import { PresentationProvider } from "@/lib/precog/presentation";
 import { isPracticePath, needsPractice } from "@/lib/precog/route-scope";
 import { useScrollToHash } from "@/lib/use-scroll-to-hash";
-import { CreatedWithGrokBanner } from "@/components/created-with-grok-banner";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { buttonClass } from "@/components/ui/button-variants";
@@ -21,11 +20,7 @@ const APP_NAME = "Precog — Small Business Risk";
 const APP_DESCRIPTION =
   "Precog shows a small-business owner who can move money alone, what one absence would stop, and which fix to make this week, with prosecuted cases behind the findings where the record shows them.";
 const host = import.meta.env.VITE_PUBLIC_HOSTNAME;
-// The share card: the PNG card first (X, Facebook and Slack ignore an SVG
-// og:image), then Precog's own SVG, which is also the landing page's picture.
-const ogImage = host
-  ? `https://og.grok.me/v1/card.png?host=${encodeURIComponent(host)}&title=${encodeURIComponent(APP_NAME)}`
-  : undefined;
+const ogImage = host ? `https://${host}/og.svg` : undefined;
 
 export const Route = createRootRoute({
   // The page's own address for og:url and the canonical link: the deepest
@@ -50,7 +45,6 @@ export const Route = createRootRoute({
               { property: "og:image", content: ogImage },
               { property: "og:image:width", content: "1200" },
               { property: "og:image:height", content: "630" },
-              { property: "og:image", content: `https://${host}/og.svg` },
             ]
           : []),
       ],
@@ -77,7 +71,7 @@ export const Route = createRootRoute({
 /** An address with no page (a typo such as /reports): say so and offer the way back. */
 function NotFound() {
   return (
-    <main className="mx-auto flex min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Page not found</p>
       <h1 className="text-2xl font-semibold tracking-tight">There is no page at this address</h1>
       <p className="text-sm text-muted">
@@ -120,7 +114,7 @@ function CheckingAccount() {
   );
 }
 
-/** The document: head, banner, toasts and scripts, around every page and the crash screen. */
+/** The document: head, toasts and scripts, around every page and the crash screen. */
 function RootShell({ children }: { children: ReactNode }) {
   useEffect(() => installGlobalErrorReporting(), []);
   return (
@@ -129,7 +123,6 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body className="min-h-dvh bg-bg text-fg antialiased">
-        <CreatedWithGrokBanner />
         {children}
         <Toaster richColors position="bottom-right" />
         <Scripts />

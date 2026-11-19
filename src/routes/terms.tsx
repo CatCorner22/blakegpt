@@ -29,7 +29,7 @@ const sectionCls = "mt-8 space-y-3 text-sm";
 
 function TermsPage() {
   return (
-    <main className="mx-auto min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-2xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-2xl px-6 py-10">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Precog</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Terms</h1>
       <p className="mt-1 text-xs text-muted">Effective {formatDay(LEGAL_EFFECTIVE)}</p>
@@ -50,6 +50,10 @@ function TermsPage() {
           figures are assumptions. Case amounts are losses stated in public sources about other
           businesses. None of these is a measurement of your business, a forecast, or an insurance
           quote.
+        </p>
+        <p>
+          Voyager uses an optional business-configured model server. Without one, Voyager uses
+          Precog’s built-in rules.
         </p>
         <p>
           The duty map is what you enter or what a job title suggested. An access import compares a

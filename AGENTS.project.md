@@ -1,9 +1,7 @@
 # Precog repository rules
 
-These rules govern every change to this repository, by any person or tool
-(Claude Code, Cursor, Codex, Devin, Grok or another). `AGENTS.md` tells every
-agent to follow this file; the Grok sandbox guidance in `AGENTS.md` still
-applies to running the live preview.
+These rules govern every change to this repository. `AGENTS.md` points every
+agent to this file.
 
 Precog shows a small business, and the CPA who advises it, where one person
 can move or hide money alone (duty conflicts), what stops when someone is
@@ -66,7 +64,4 @@ migration rather than by editing the old one.
 
 ## Files and settings to leave alone
 
-- Keep `CreatedWithGrokBanner` mounted in `src/routes/__root.tsx`.
 - Do not create a `.env` file.
-- Do not add a React route at `/auth/popup`.
-- Do not rewrite `src/lib/auth/server.ts`.

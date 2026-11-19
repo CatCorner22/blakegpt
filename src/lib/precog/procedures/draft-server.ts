@@ -63,7 +63,7 @@ export function readDraftReply(
   if (!steps.length) return null;
   const purpose = typeof parsed.purpose === "string" ? parsed.purpose : "";
   return {
-    source: "grok",
+    source: "model",
     ...(model ? { model } : {}),
     purpose: sentence(purpose, PROCEDURE_LIMITS.purpose),
     prerequisites: lines(

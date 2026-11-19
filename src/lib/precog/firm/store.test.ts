@@ -983,34 +983,15 @@ describe("invitation and the accepting account's address", () => {
     expect((await inviteFit(db.sql, "t1", "ub"))?.fit).toBe("confirm");
     await expect(acceptInvite(db.sql, "t1", "ub")).rejects.toThrow(/cannot vouch for this account/);
     await expect(acceptInvite(db.sql, "t1", "ub")).rejects.toThrow(
-      "Precog cannot vouch for this account's address. Joining a firm needs a confirmed address that is the invited one: sign in with Google under a***@cpa.test, or with an email-and-password account you have confirmed, then open the invitation again.",
+      "Precog cannot vouch for this account's address. Joining a firm needs a confirmed address that is the invited one: sign in with the invited email address, confirm it, then open the invitation again.",
     );
     expect(await peekInvite(db.sql, "t1")).not.toBeNull();
     expect(await loadFirmFor(db.sql, "ub")).toBeNull();
   });
 
-  it("treats an X-only account's address as one Precog cannot vouch for", async () => {
-    await db.pg.query(
-      `insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-       values ('acc_x', 'x-1', 'grok-x', 'ub', now(), now())`,
-    );
-    expect((await inviteFit(db.sql, "t1", "ub"))?.fit).toBe("confirm");
-    expect(await digestAddressProblem(db.sql, "ub")).toBe("x_only");
-  });
-
-  it("says why the digest cannot reach an address: unconfirmed, X-only, or nothing wrong", async () => {
+  it("says whether the digest can reach a confirmed address", async () => {
     expect(await digestAddressProblem(db.sql, "ub")).toBeNull();
     await db.pg.query(`update "user" set "emailVerified" = false where id = 'ub'`);
-    expect(await digestAddressProblem(db.sql, "ub")).toBe("unconfirmed");
-    await db.pg.query(
-      `insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-       values ('acc_x', 'x-1', 'grok-x', 'ub', now(), now())`,
-    );
-    expect(await digestAddressProblem(db.sql, "ub")).toBe("x_only");
-    await db.pg.query(
-      `insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-       values ('acc_c', 'ub', 'credential', 'ub', now(), now())`,
-    );
     expect(await digestAddressProblem(db.sql, "ub")).toBe("unconfirmed");
     expect(await digestAddressProblem(db.sql, "nobody")).toBeNull();
   });

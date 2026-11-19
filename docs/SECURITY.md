@@ -25,8 +25,7 @@ Every response carries, from `vite.config.ts`:
 
 ## Authentication
 
-- Google and X sign-in go through Precog's auth broker; Precog's own Better Auth (`src/lib/auth/server.ts`) holds the session. Session cookies are Better Auth's: http-only, secure and SameSite=Lax; server functions additionally refuse cross-site requests (`assertSameSiteRequest` in `src/lib/auth/middleware.ts`).
-- Email-and-password sign-in, when a deployment turns it on (`src/lib/auth/email-password.server.ts`), stores a hash of the password, never the password, and emails a confirmation link; an unconfirmed sign-up is removed after 24 hours.
+- Precog uses Better Auth for email-and-password sign-in (`src/lib/auth/server.ts`). Better Auth stores a hash of the password, never the password, and emails a confirmation link; an unconfirmed sign-up is removed after 24 hours. Session cookies are http-only, secure and SameSite=Lax; server functions also refuse cross-site requests (`assertSameSiteRequest` in `src/lib/auth/middleware.ts`).
 - There is no multi-factor sign-in today. A session ends seven days after Better Auth last refreshed it, and Better Auth refreshes a session only when it is used more than a day after its last refresh (its defaults `expiresIn` and `updateAge`), so a session can end about six days after its last use. Sessions in the account menu ends the other sessions or every session at any time, and lists them only within a day of signing in (`/list-sessions` requires a session created within Better Auth's `freshAge`, one day; the dialog says so).
 - The email links (owner reminder consent and stop links, password reset, confirmation) carry long random tokens; a link that does not match one answers a plain "no longer works" page and reveals nothing about the account.
 - Owner and digest email links (`/api/owner-email`, `/api/digest-email`) cap token lookups at sixty opens per network address per minute (`src/lib/precog/reminders/email-link-limits.ts`); excess opens get a generic wait page, not a different error that would help guessing tokens.
@@ -82,14 +81,14 @@ cash and payroll on a fixed cadence whether or not Precog is open.
 - Map backup import rejects files larger than two megabytes before JSON parsing (`src/lib/precog/builder/map-backup.ts`), so a oversized upload cannot freeze the browser.
 - The model-call cap keeps a one-way hash of the network address, and the count holds no question or reply (`src/lib/precog/llm/`).
 - Before notes reach the model, Precog masks anything that looks like a password, card number or code, and masks the draft that comes back (the Privacy page lists exactly what each feature sends).
-- Precog does not use what you enter to train a model and sends xAI nothing for training.
+- Precog does not send what you enter for model training. Without a configured model server, Voyager uses built-in rules.
 - Procedure pictures are re-encoded in the browser, which drops their EXIF and GPS data, and the server then strips the remaining metadata segments (EXIF, XMP, text and time chunks) before storing them (`src/lib/precog/procedures/image-bytes.ts`).
 - Deleting an account removes its rows; a deleted business is purged after a grace period by the weekly job (`docs/ACCOUNT_DATA_MODEL.md`).
 
 ## Logging and monitoring
 
 - Server failures go to Sentry (`SENTRY_DSN`) or to a JSON webhook (`ERROR_REPORT_URL`); the report carries the release id and the route, never prompt text or a key (`src/lib/observability/`).
-- Every model call logs one `[grok] usage` line with token counts and latency, and no prompt text, and stores one `llm_usage` row (account, feature, model, token counts, outcome and time; no question or answer) for 13 months; the weekly run purges older rows and the account deletion removes the account's (`src/lib/precog/llm/usage-log.server.ts`).
+- Every model call logs one `[model] usage` line with token counts and latency, and no prompt text, and stores one `llm_usage` row (account, feature, model, token counts, outcome and time; no question or answer) for 13 months; the weekly run purges older rows and the account deletion removes the account's (`src/lib/precog/llm/usage-log.server.ts`).
 - Precog runs no analytics script; activation counts come from `product_events` (ids and times only).
 - `GET /api/health` runs one database query and answers `{ ok: true }` or a 503; the uptime monitor and the restore procedure both read it ([OPERATIONS.md](./OPERATIONS.md)).
 - Rate limits: model calls are limited per user, per process and per network address, and capped per account per day in the database; emailed token links are limited as above. These limits are cost and abuse control at the application level; a platform-level limit (Vercel Firewall) in front is the owner's setting.
@@ -108,80 +107,16 @@ Write to the mailbox in the `SUPPORT_EMAIL` environment variable, which is the S
 - A standard data processing agreement is available on request from the support mailbox.
 - Tests in CI pin the security headers, the server-function ids, the migration ledger and the account boundaries between two signed-in sessions (`.github/workflows/ci.yml`).
 
-## Proposed sign-in changes awaiting the operator's go-ahead (not applied)
-
-`src/lib/auth/server.ts` stays unedited by repository rule (`AGENTS.project.md`: "Do not rewrite `src/lib/auth/server.ts`"). None of the lines below is in the code. Each needs the operator's explicit go-ahead before anyone applies it, and each can be taken alone, except that the database storage comes with the `"/get-session": false` rule.
-
-```diff
--  session: { cookieCache: { enabled: true, maxAge: 300 } },
-+  session: {
-+    expiresIn: 60 * 60 * 24 * 7, // seven days, Better Auth's default made explicit
-+    updateAge: 60 * 60 * 24,
-+    cookieCache: { enabled: true, maxAge: 300 },
-+  },
-   rateLimit: {
-+    storage: "database",
-+    modelName: "authRateLimit",
-     customRules: {
-       "/sign-in/email": { window: 60, max: 5 },
-       "/sign-up/email": { window: 60, max: 5 },
-+      "/get-session": false,
-     },
-   },
-+  user: { changeEmail: { enabled: true } },
-   plugins: [
-     ...(grokOAuthPlugin ? [grokOAuthPlugin] : []),
-     bearer(),
-+    twoFactor({ issuer: "Precog", allowPasswordless: true }),
-     tanstackStartCookies(),
-   ],
-```
-
-What each line does:
-
-- `session.expiresIn` and `updateAge`: write down the session length Precog already has (Better Auth's defaults: seven days from the last refresh, refreshed when a session last refreshed more than a day ago is used), so a later change is a visible edit. Nothing changes for a user.
-- `rateLimit.storage: "database"` and `modelName: "authRateLimit"`: the limit of five email sign-ins or sign-ups a minute from one address counts in Postgres instead of in each serverless instance's memory, so it holds across instances. Better Auth runs its limiter in production only, but there on every `/api/auth` request, not only on those two paths: a path with no rule of its own is limited to 100 requests in 10 seconds per address (Better Auth's defaults). With database storage every limited request therefore reads and writes one `"authRateLimit"` row, the client's frequent `/get-session` included, which the cookie cache otherwise answers without the database.
-- `"/get-session": false`: takes the session check out of the limiter (Better Auth skips a path whose rule is `false`), so it stays off the database as today; it also drops the in-memory limit of 100 checks in 10 seconds per address that path has now. Every other auth request (sign-in and sign-up, sign-out, the Google and X callback, the Sessions dialog's list and sign-outs) still costs at least one read and one write. Take this line with the database storage, never the storage without it; alone it changes only that in-memory limit.
-- `user.changeEmail`: lets an account change its sign-in address through Better Auth's change-email flow, which confirms by email. It needs a screen for it, and a decision on how a firm's invitations, the client invitations and the digest follow the new address.
-- `twoFactor(…)`: optional two-step sign-in with an authenticator app (TOTP) and one-time recovery codes (Better Auth's `backupCodes`), for Google and X accounts too (`allowPasswordless`); Better Auth stores the secret and the codes encrypted under `BETTER_AUTH_SECRET`. It needs `twoFactorClient` in `src/lib/auth/client.ts`, a `/login/two-factor` page for the code, a Security dialog to turn it on, and a test of the live-preview sign-in popup with a two-step account. `tanstackStartCookies()` stays last.
-
-The tables they need, as one add-only migration with Better Auth's names quoted as in `migrations/0001_auth.sql` (the names come from Better Auth's `get-tables.mjs` and the two-factor plugin's `schema.mjs`; confirm them against `npx @better-auth/cli generate` before applying):
-
-```sql
--- twoFactor(): the account's switch, its secret and its recovery codes.
-alter table "user" add column if not exists "twoFactorEnabled" boolean not null default false;
-create table if not exists "twoFactor" (
-  "id" text not null primary key,
-  "secret" text not null,
-  "backupCodes" text not null,
-  "userId" text not null references "user" ("id") on delete cascade,
-  "verified" boolean not null default true,
-  "failedVerificationCount" integer not null default 0,
-  "lockedUntil" timestamptz
-);
-create index if not exists "twoFactor_userId_idx" on "twoFactor" ("userId");
-create index if not exists "twoFactor_secret_idx" on "twoFactor" ("secret");
--- rateLimit.storage "database": one counter per limited path and address.
-create table if not exists "authRateLimit" (
-  "id" text not null primary key,
-  "key" text not null unique,
-  "count" integer not null,
-  "lastRequest" bigint not null
-);
-```
-
 ## Who processes your data
 
 The same list as the Privacy page, which is authoritative:
 
-| Processor                                                                         | What for                                     |
-| --------------------------------------------------------------------------------- | -------------------------------------------- |
-| Vercel                                                                            | Hosting                                      |
-| Neon                                                                              | Database                                     |
-| The operator named in `AUTH_BROKER_OPERATOR` (`src/lib/precog/legal/operator.ts`) | Google and X sign-in through the auth broker |
-| Google, X                                                                         | Sign-in providers                            |
-| Resend                                                                            | Email                                        |
-| Stripe                                                                            | Payment                                      |
-| xAI                                                                               | Model calls                                  |
-| Intuit                                                                            | QuickBooks, only when a firm connects it     |
-| Sentry or the error relay Precog's operator sets                                  | Error reports, without prompt text           |
+| Processor                                        | What for                                 |
+| ------------------------------------------------ | ---------------------------------------- |
+| Vercel                                           | Hosting                                  |
+| Neon                                             | Database                                 |
+| Resend                                           | Email                                    |
+| Stripe                                           | Payment                                  |
+| Business-configured model server                 | Optional model calls                     |
+| Intuit                                           | QuickBooks, only when a firm connects it |
+| Sentry or the error relay Precog's operator sets | Error reports, without prompt text       |

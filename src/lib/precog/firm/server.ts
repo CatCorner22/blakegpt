@@ -323,7 +323,6 @@ export const transferFirmOwnership = createServerFn({ method: "POST" })
     const { requireFreshSession } = await import("@/lib/auth/fresh-session");
     await requireFreshSession({
       userId: context.userId,
-      bearerToken: context.bearerToken,
       message: SIGN_IN_AGAIN_TO_TRANSFER,
     });
     const sql = await getSql();

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ownerText, parseJsonReply, withGrokFallback } from "./prompt-text";
+import { ownerText, parseJsonReply, withModelFallback } from "./prompt-text";
 import type { LlmAccess } from "./guard.server";
 import { DailyLimitReached } from "./types";
 
-const access = (grok: LlmAccess["grok"]): LlmAccess => ({ userId: "owner-1", grok });
+const access = (model: LlmAccess["model"]): LlmAccess => ({ userId: "owner-1", model });
 
 describe("ownerText", () => {
   it("removes opening and closing owner_text tags in any case or spacing", () => {
@@ -20,52 +20,52 @@ describe("parseJsonReply", () => {
   });
 });
 
-describe("withGrokFallback", () => {
+describe("withModelFallback", () => {
   afterEach(() => vi.unstubAllEnvs());
   const local = { source: "local" };
 
-  it("answers locally without asking when Grok is not allowed or no key is set", async () => {
+  it("answers locally without asking when Voyager is not allowed or no endpoint is configured", async () => {
     const ask = vi.fn();
-    vi.stubEnv("XAI_API_KEY", "");
-    expect(await withGrokFallback(access("allowed"), local, true, ask)).toEqual({
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "");
+    expect(await withModelFallback(access("allowed"), local, true, ask)).toEqual({
       source: "local",
-      grokStatus: "allowed",
+      modelStatus: "allowed",
     });
-    vi.stubEnv("XAI_API_KEY", "key");
-    expect(await withGrokFallback(access("rate_limited"), local, true, ask)).toEqual({
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
+    expect(await withModelFallback(access("rate_limited"), local, true, ask)).toEqual({
       source: "local",
-      grokStatus: "rate_limited",
+      modelStatus: "rate_limited",
     });
-    expect(await withGrokFallback(access("allowed"), local, false, ask)).toMatchObject(local);
+    expect(await withModelFallback(access("allowed"), local, false, ask)).toMatchObject(local);
     expect(ask).not.toHaveBeenCalled();
   });
 
-  it("uses Grok's answer, and the local one when Grok returns nothing or throws", async () => {
-    vi.stubEnv("XAI_API_KEY", "key");
-    const grok = { source: "grok" };
-    expect(await withGrokFallback(access("allowed"), local, true, async () => grok)).toEqual({
-      source: "grok",
-      grokStatus: "allowed",
+  it("uses Voyager's answer, and the local one when Voyager returns nothing or throws", async () => {
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
+    const model = { source: "model" };
+    expect(await withModelFallback(access("allowed"), local, true, async () => model)).toEqual({
+      source: "model",
+      modelStatus: "allowed",
     });
-    expect(await withGrokFallback(access("allowed"), local, true, async () => null)).toMatchObject(
+    expect(await withModelFallback(access("allowed"), local, true, async () => null)).toMatchObject(
       local,
     );
     expect(
-      await withGrokFallback(access("allowed"), local, true, async () => {
+      await withModelFallback(access("allowed"), local, true, async () => {
         throw new Error("down");
       }),
     ).toMatchObject(local);
   });
 
   it("marks the local answer as a daily limit when today's model budget is spent", async () => {
-    vi.stubEnv("XAI_API_KEY", "key");
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
     expect(
-      await withGrokFallback(access("allowed"), local, true, async () => {
+      await withModelFallback(access("allowed"), local, true, async () => {
         throw new DailyLimitReached({ scope: "user", plan: "free", limit: 100, paidLimit: 400 });
       }),
     ).toEqual({
       source: "local",
-      grokStatus: "daily_limit",
+      modelStatus: "daily_limit",
       dailyLimit: { scope: "user", plan: "free", limit: 100, paidLimit: 400 },
     });
   });

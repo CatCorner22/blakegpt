@@ -2,18 +2,17 @@
 
 Generated: 2026-09-26
 
-Reference catalog of Agent Skills discoverable in the Cloud Agent environment used for this project, plus Cursor built-in slash skills and Grok Build skills documented in `AGENTS.md`.
+Reference catalog of Agent Skills discoverable in the Cloud Agent environment used for this project, plus Cursor built-in slash skills.
 
 Skills are markdown instruction packages (`SKILL.md`) that teach the agent domain-specific workflows. See [Cursor Agent Skills docs](https://cursor.com/docs/skills).
 
 ## Summary
 
-| Source                                         |   Count |
-| ---------------------------------------------- | ------: |
-| Installed SKILL.md files (this environment)    |     107 |
-| Cursor built-in slash skills                   |      19 |
-| Grok Build skills (documented, not in this VM) |      16 |
-| **Total documented below**                     | **142** |
+| Source                                      |   Count |
+| ------------------------------------------- | ------: |
+| Installed SKILL.md files (this environment) |     107 |
+| Cursor built-in slash skills                |      19 |
+| **Total documented below**                  | **126** |
 
 Third-party marketplaces (PromptBase, community packs) may list 160–440+ additional skills; those are not installed here unless added to `~/.cursor/skills/` or via plugins.
 
@@ -195,31 +194,6 @@ Managed by Cursor; invoke with `/skill-name` in Agent chat. Source: [cursor.com/
 | 124 | `/statusline`             | Configures the Cursor CLI status line.                                                               |
 | 125 | `/update-cli-config`      | Updates Cursor CLI settings in ~/.cursor/cli-config.json.                                            |
 | 126 | `/update-cursor-settings` | Finds and updates the appropriate Cursor or VS Code setting.                                         |
-
----
-
-## Part 3 — Grok Build skills (16)
-
-Documented in `AGENTS.md` under `.grok/skills/`. Present in Grok app-builder sandboxes; **not installed** in this Cursor Cloud Agent VM.
-
-| #   | Skill                        | Description                                                |
-| --- | ---------------------------- | ---------------------------------------------------------- |
-| 127 | `auth`                       | Better Auth sign-in setup for Grok app builder.            |
-| 128 | `neon`                       | Postgres / PGLite database patterns.                       |
-| 129 | `og`                         | Open Graph share card metadata.                            |
-| 130 | `xai-api`                    | xAI chat, Imagine image/video, voice TTS.                  |
-| 131 | `controls`                   | WASD / vehicle controls; A=left self-test under chase cam. |
-| 132 | `building-games`             | Game loops and 3D interaction patterns.                    |
-| 133 | `multiplayer-p2p`            | WebRTC mesh for casual 2–8 player co-op.                   |
-| 134 | `imagine`                    | 2D image generation prompt craft.                          |
-| 135 | `game-asset-core`            | Game art QC doctrine and defaults.                         |
-| 136 | `game-animation-frames`      | Animation loop laws and motion QC.                         |
-| 137 | `game-tilesets`              | Seamless tile and transition rules.                        |
-| 138 | `game-character-consistency` | Character turnarounds and variants.                        |
-| 139 | `game-ui-icons`              | HUD and icon set guidance.                                 |
-| 140 | `generate2dsprite`           | Magenta-key (#FF00FF) sprite sheet pipeline.               |
-| 141 | `generate2dmap`              | 2D level/map generation for browser engines.               |
-| 142 | `video2dsprite`              | Video → sprite sheet via ffmpeg chroma key.                |
 
 ---
 

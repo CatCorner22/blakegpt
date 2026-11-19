@@ -4,7 +4,7 @@
  * AI suggester and to pad AI output so the builder always returns something.
  */
 import type { ProcessIdea, ProcessRisk } from "../types";
-import type { DailyLimitInfo, GrokAccess } from "../llm/types";
+import type { DailyLimitInfo, ModelAccess } from "../llm/types";
 
 export interface SuggestionInput {
   processName: string;
@@ -18,17 +18,17 @@ export interface SuggestionInput {
 
 /**
  * A suggested risk. `ruleBased` marks a built-in rule's risk added to pad
- * Grok's list, so the panel can say where it came from; it is not part of
+ * Voyager's list, so the panel can say where it came from; it is not part of
  * the risk saved to the register.
  */
 export type SuggestedRisk = Omit<ProcessRisk, "id"> & { ruleBased?: true };
 export type SuggestedIdea = Omit<ProcessIdea, "id">;
 
 export interface SuggestionResult {
-  source: "grok" | "local";
+  source: "model" | "local";
   model?: string;
-  grokStatus?: GrokAccess;
-  /** Which daily ceiling was met, when grokStatus is "daily_limit". */
+  modelStatus?: ModelAccess;
+  /** Which daily ceiling was met, when modelStatus is "daily_limit". */
   dailyLimit?: DailyLimitInfo;
   risks: SuggestedRisk[];
   ideas: SuggestedIdea[];
@@ -353,10 +353,10 @@ export function suggestLocally(input: SuggestionInput): SuggestionResult {
 }
 
 /**
- * Grok's suggestions, with built-in rule risks added (marked `ruleBased`)
- * until there are four, so the panel is never sparse. Grok's control choice
+ * Voyager's suggestions, with built-in rule risks added (marked `ruleBased`)
+ * until there are four, so the panel is never sparse. Voyager's control choice
  * stands as it is, an empty one included: the prompt allows none, and rule
- * controls under Grok's name would misstate where they came from.
+ * controls under Voyager's name would misstate where they came from.
  */
 export function padWithRules(ai: SuggestionResult, local: SuggestionResult): SuggestionResult {
   const risks = [...ai.risks];

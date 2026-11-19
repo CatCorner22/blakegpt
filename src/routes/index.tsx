@@ -351,7 +351,7 @@ function Home() {
   }
 
   return (
-    <div className="min-h-[calc(100dvh-var(--grok-banner-h,0px))] bg-bg">
+    <div className="min-h-dvh bg-bg">
       {showOnboarding && (
         <BehindGuestImportPrompt open={guestPromptOpen}>
           <Suspense fallback={<SetupLoading />}>
@@ -385,7 +385,7 @@ function Home() {
         <div className="lg:pl-60">
           <header
             ref={headerRef}
-            className="sticky top-[var(--grok-banner-h,0px)] z-20 border-b border-border bg-bg/90 backdrop-blur lg:bg-bg lg:backdrop-blur-none"
+            className="sticky top-0 z-20 border-b border-border bg-bg/90 backdrop-blur lg:bg-bg lg:backdrop-blur-none"
           >
             {/* On a phone the header is two rows: the business, Needs attention
               and the account, then wording, save status and Ask Pioneer. */}

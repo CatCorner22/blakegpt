@@ -30,7 +30,7 @@ process.env.BETTER_AUTH_SECRET = secret;
 process.env.BETTER_AUTH_URL = "http://localhost:8089";
 process.env.VITE_AUTH_ENABLED = "true";
 for (const k of [
-  "XAI_API_KEY",
+  "PRECOG_LLM_BASE_URL",
   "QBO_CLIENT_ID",
   "QBO_CLIENT_SECRET",
   "RESEND_API_KEY",
@@ -71,7 +71,7 @@ for (const [key, u] of Object.entries(users)) {
     [randomUUID(), u.id, token],
   );
   cookies[key] = {
-    name: "__Host-grok-auth.session_token",
+    name: "__Host-precog-auth.session_token",
     value: encodeURIComponent(
       token + "." + createHmac("sha256", secret).update(token).digest("base64"),
     ),

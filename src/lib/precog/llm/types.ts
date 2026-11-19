@@ -29,8 +29,8 @@ export type ToolName =
  * "daily_limit" marks an answer whose model call was refused because today's
  * model budget is used up.
  */
-export type GrokAccess =
-  "allowed" | "unauthenticated" | "rate_limited" | "no_api_key" | "daily_limit";
+export type ModelAccess =
+  "allowed" | "unauthenticated" | "rate_limited" | "not_configured" | "daily_limit";
 
 /**
  * Which daily ceiling a refused model call met, so the sentence the owner
@@ -54,7 +54,7 @@ export interface DailyLimitInfo {
  * which ceiling was met.
  */
 export class DailyLimitReached extends Error {
-  readonly grok = "daily_limit" satisfies GrokAccess;
+  readonly model = "daily_limit" satisfies ModelAccess;
   readonly dailyLimit: DailyLimitInfo;
 
   constructor(dailyLimit: DailyLimitInfo) {
@@ -138,7 +138,7 @@ export interface StructuredBrief {
 }
 
 export interface AgentRunResult {
-  source: "grok-agent" | "local-agent";
+  source: "model-agent" | "local-agent";
   model?: string;
   question: string;
   steps: ReasoningStep[];

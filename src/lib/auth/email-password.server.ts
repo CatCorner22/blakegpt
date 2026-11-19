@@ -6,11 +6,11 @@
  * confirmed from a link before it can sign in, a password can be reset by
  * email, and an unconfirmed sign-up older than a day is removed so it cannot
  * hold an address that belongs to someone else (the real owner could then
- * neither sign up nor use Google with it). Accounts that never confirmed
+ * not sign up with it). Accounts that never confirmed
  * before this existed are kept (migrations/0027): they get a fresh link each
  * time they try to sign in.
  *
- * Without email (the live preview), Precog cannot send a link, so sign-up
+ * Without configured email delivery, Precog cannot send a link, so sign-up
  * works unconfirmed as before and the server log says so.
  */
 import type { BetterAuthOptions } from "better-auth";

@@ -581,11 +581,7 @@ describe("digest run", () => {
     expect(first.sent.map((s) => s.to)).toEqual(["owner@shop.test"]);
     expect(first.sent[0].replyTo).toBeUndefined();
 
-    await db.sql`
-      insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-      values ('acc_g', 'g-1', 'grok-google', 'adv', now(), now())
-    `;
-    // A Google sign-in whose address the broker did not mark confirmed is not vouched for.
+    // A provider row cannot stand in for email confirmation.
     const second = recorder();
     expect((await run(second.send)).advisors).toBe(0);
     expect(second.sent.map((s) => s.to)).toEqual([]);
@@ -596,26 +592,13 @@ describe("digest run", () => {
     expect(third.sent.map((s) => s.to)).toEqual(["adv@firm.test"]);
   });
 
-  it("sends nothing to an X-only account, and its owner notes carry no reply-to", async () => {
-    // A confirmed flag does not help: X sign-ins carry a made-up address.
-    await db.sql`
-      insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-      values ('acc_x', 'x-1', 'grok-x', 'adv', now(), now())
-    `;
+  it("does not send an unconfirmed digest, and owner notes carry no reply-to", async () => {
+    await db.sql`update "user" set "emailVerified" = false where id = 'adv'`;
     const { sent, send } = recorder();
     const outcome = await run(send);
     expect(outcome).toMatchObject({ advisors: 0, owners: 1, errors: [] });
     expect(sent.map((s) => s.to)).toEqual(["owner@shop.test"]);
     expect(sent[0].replyTo).toBeUndefined();
-
-    // The same account with a password sign-in as well is vouched for again.
-    await db.sql`
-      insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-      values ('acc_c', 'adv', 'credential', 'adv', now(), now())
-    `;
-    const again = recorder();
-    expect((await run(again.send)).advisors).toBe(1);
-    expect(again.sent.map((s) => s.to)).toEqual(["adv@firm.test"]);
   });
 
   /** 'adv' becomes the owner of North Advisors with biz_1 as a client, and 'rev' a reviewer. */

@@ -10,16 +10,15 @@ const source = readFileSync(new URL("./join.$token.tsx", import.meta.url), "utf8
 );
 
 describe("the invitation page", () => {
-  it("tells a visitor which sign-ins can join, and offers Google alone", () => {
+  it("tells a visitor to use the invited email address", () => {
     expect(source).toContain(
-      'Sign in to join. The firm sent this invite to <span className="text-fg">{email}</span>. Use Google or the invited email address to sign in.',
+      'Sign in with the email address the firm invited: <span className="text-fg">{email}</span>. Then reopen this invitation.',
     );
-    expect(source).toContain('GROK_PROVIDERS.filter((p) => p.providerId === "grok-google")');
   });
 
   it("refuses an unconfirmed address and explains how to join", () => {
     expect(source).toContain(
-      'Precog cannot confirm this account&rsquo;s email. Sign in with Google as{" "} <span className="text-fg">{invitedEmail}</span>, or use an email-and-password account with a confirmed address. Then reopen the invitation.',
+      'Precog cannot confirm this account&rsquo;s email. Sign in with an email-and-password account for <span className="text-fg">{invitedEmail}</span> and confirm its address. Then reopen the invitation.',
     );
   });
 

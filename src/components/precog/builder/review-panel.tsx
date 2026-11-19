@@ -1,7 +1,7 @@
 import { Loader2, RotateCw } from "lucide-react";
 
 import { labelCls } from "@/components/ui/field-classes";
-import { ruleBasedReason, UNCHECKED_MODEL_NOTE } from "@/components/precog/builder/grok-status";
+import { ruleBasedReason, UNCHECKED_MODEL_NOTE } from "@/components/precog/builder/model-status";
 import type { MapReview } from "@/lib/precog/builder/review";
 import type { ProcessNode } from "@/lib/precog/types";
 import { cn } from "@/lib/utils";
@@ -46,8 +46,8 @@ export function ReviewPanel({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold text-fg">{review.headline}</p>
           <p className="mt-0.5 text-xs text-subtle">
-            {review.source === "grok"
-              ? `Reviewed by ${review.model ?? "Grok"}. ${UNCHECKED_MODEL_NOTE}`
+            {review.source === "model"
+              ? `Reviewed by ${review.model ?? "Voyager"}. ${UNCHECKED_MODEL_NOTE}`
               : "Rule-based review"}
             {" · "}
             <button
@@ -61,12 +61,12 @@ export function ReviewPanel({
           </p>
         </div>
       </div>
-      {ruleBasedReason(review.source, review.grokStatus, review.dailyLimit) && (
+      {ruleBasedReason(review.source, review.modelStatus, review.dailyLimit) && (
         <p className="text-xs text-subtle">
-          {ruleBasedReason(review.source, review.grokStatus, review.dailyLimit)}
+          {ruleBasedReason(review.source, review.modelStatus, review.dailyLimit)}
         </p>
       )}
-      {/* Grok can repeat a heading or a point; the review is fixed once received, so index keys hold. */}
+      {/* Voyager can repeat a heading or a point; the review is fixed once received, so index keys hold. */}
       {review.sections.map((s, sectionIndex) => (
         <div key={`${sectionIndex}-${s.heading}`}>
           <p className={labelCls}>{s.heading}</p>

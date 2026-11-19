@@ -64,7 +64,7 @@ describe("bounded selection protocol", () => {
     expect(result).toContain("Only when condition 2 holds.");
     expect(result).not.toContain("Most relevant");
     expect(result).not.toContain("## Source brief");
-    expect(result).not.toContain("Grok picked");
+    expect(result).not.toContain("Voyager picked");
     for (const warning of brief.chickenLittleWarnings) expect(result).not.toContain(warning);
   });
   it("keeps each selected condition and adds no limits block", () => {

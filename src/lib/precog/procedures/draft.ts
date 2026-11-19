@@ -1,4 +1,4 @@
-import type { DailyLimitInfo, GrokAccess } from "../llm/types";
+import type { DailyLimitInfo, ModelAccess } from "../llm/types";
 import { maskLikelySecrets } from "./credential-guard";
 import { PROCEDURE_LIMITS } from "./normalize";
 
@@ -20,10 +20,10 @@ export interface ProcedureDraftInput {
 }
 
 export interface ProcedureDraft {
-  source: "grok" | "local";
+  source: "model" | "local";
   model?: string;
-  grokStatus?: GrokAccess;
-  /** Which daily ceiling was met, when grokStatus is "daily_limit". */
+  modelStatus?: ModelAccess;
+  /** Which daily ceiling was met, when modelStatus is "daily_limit". */
   dailyLimit?: DailyLimitInfo;
   /** Why the task matters, or "" when the notes do not say. */
   purpose: string;

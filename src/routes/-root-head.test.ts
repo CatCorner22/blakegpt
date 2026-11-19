@@ -62,15 +62,13 @@ describe("the share preview tags with the production host set", () => {
     );
   });
 
-  it("name the home page itself at the root address, with both share pictures", async () => {
+  it("names the home page itself at the root address, with its share picture", async () => {
     const hosted = await headWithHost("/");
     expect(hosted.meta.find((m) => m.property === "og:url")?.content).toBe(
       "https://precog.example/",
     );
     expect(hosted.links.find((l) => l.rel === "canonical")?.href).toBe("https://precog.example/");
     const images = hosted.meta.filter((m) => m.property === "og:image").map((m) => m.content);
-    expect(images).toHaveLength(2);
-    expect(images[0]).toContain("https://og.grok.me/v1/card.png?host=precog.example");
-    expect(images[1]).toBe("https://precog.example/og.svg");
+    expect(images).toEqual(["https://precog.example/og.svg"]);
   });
 });

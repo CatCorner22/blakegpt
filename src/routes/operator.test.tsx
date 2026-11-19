@@ -142,7 +142,7 @@ describe("the operator console", () => {
           name: "Fay Owner",
           email: "fay@firm.test",
           emailVerified: true,
-          providers: ["grok-google"],
+          providers: [],
           createdAt: "2026-09-01",
           firm: { firmUserId: "fo", name: "North", role: "owner" },
           businesses: { live: 2, deleted: 0 },

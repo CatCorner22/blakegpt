@@ -1,17 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  GROK_PROVIDERS,
-  authClient,
-  authEnabled,
-  signIn,
-  signInErrorMessage,
-} from "@/lib/auth/client";
+import { authClient, authEnabled, signInErrorMessage } from "@/lib/auth/client";
 import { emailAndPasswordEnabled, PASSWORD_MIN_LENGTH } from "@/lib/auth/email-password";
 import { PILOT_OFFER, planAmounts, type PlanAmounts } from "@/lib/precog/firm/pricing";
 import { getPlanPrices } from "@/lib/precog/billing/server";
-import { Button } from "@/components/ui/button";
 import { LegalFooter } from "@/components/precog/legal-footer";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/login")({
   // The Firm plan's price as Stripe charges it, read before the page renders
@@ -33,7 +27,7 @@ function Login() {
   const amounts: PlanAmounts | null = prices ? planAmounts(prices.configured, prices.prices) : null;
 
   return (
-    <main className="flex min-h-[calc(100dvh-var(--grok-banner-h,0px))] items-center justify-center p-6">
+    <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-sm">
         <p className="text-xs tracking-[0.2em] text-primary uppercase">Precog</p>
         <h1 className="mt-2 text-xl font-semibold tracking-tight">Sign in</h1>
@@ -47,12 +41,11 @@ function Login() {
           </Link>
           .
         </p>
-        {authEnabled ? (
-          <ProviderButtons />
+        {authEnabled && emailAndPasswordEnabled ? (
+          <EmailPasswordForm />
         ) : (
           <p className="mt-6 text-sm text-muted">Sign-in is off in this environment.</p>
         )}
-        {authEnabled && emailAndPasswordEnabled && <EmailPasswordForm />}
         <Link
           to="/"
           className="mt-6 block text-center text-sm text-muted underline-offset-4 hover:text-fg hover:underline"
@@ -66,63 +59,10 @@ function Login() {
 }
 
 /**
- * Google and X sign-in. A blocked or cancelled pop-up and a broker error each
- * show a message (`signIn` rejects with one ready to show), a failed or
- * cancelled provider step returns here with `?error=<code>`, and the buttons
- * wait while a sign-in is under way.
- */
-function ProviderButtons() {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("error");
-    if (code) setError(signInErrorMessage(code));
-  }, []);
-
-  async function start(providerId: string) {
-    setError(null);
-    setBusy(true);
-    try {
-      await signIn(providerId, { callbackURL: "/" });
-    } catch (err) {
-      setError(
-        err instanceof Error && err.message ? err.message : signInErrorMessage("sign_in_failed"),
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-6 space-y-2">
-      {GROK_PROVIDERS.map((p) => (
-        <Button
-          key={p.providerId}
-          type="button"
-          variant="secondary"
-          className="w-full"
-          disabled={busy}
-          onClick={() => void start(p.providerId)}
-        >
-          Continue with {p.label}
-        </Button>
-      ))}
-      {error && (
-        <p role="alert" className="text-xs text-danger">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
- * This app's own email and password, for firms that do not sign in with
- * Google or X. The account lives in this app's database alone. Where Precog
- * can send email, a new address is confirmed from a link before it signs in,
- * and a forgotten password is reset by email (`?token=` is the reset link
- * coming back, `?verified=1` the confirmation link).
+ * The account lives in this app's database. Where Precog can send email, a
+ * new address is confirmed from a link before it signs in, and a forgotten
+ * password is reset by email (`?token=` is the reset link coming back,
+ * `?verified=1` the confirmation link).
  */
 function EmailPasswordForm() {
   const [mode, setMode] = useState<"sign-in" | "create" | "forgot" | "reset">("sign-in");
@@ -256,10 +196,10 @@ function EmailPasswordForm() {
         ? "Forgot password"
         : mode === "reset"
           ? "Set a new password"
-          : "Or use email";
+          : "Email and password";
 
   return (
-    <form onSubmit={submit} className="mt-5 space-y-3 border-t border-border pt-5">
+    <form onSubmit={submit} className="mt-6 space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium tracking-wide text-muted uppercase">{heading}</p>
         {mode !== "reset" && (

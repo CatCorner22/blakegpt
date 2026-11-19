@@ -5,8 +5,7 @@
  * pulling in server code.
  */
 
-export const GRANT_CONFIRM =
-  "Sign in with Google or with the email address the invitation was sent to.";
+export const GRANT_CONFIRM = "Sign in with the email address the invitation was sent to.";
 export const GRANT_CLOSED =
   "This invitation has expired or was already used. Ask the business owner for a new one.";
 

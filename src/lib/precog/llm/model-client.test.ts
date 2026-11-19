@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { grokChat } from "./grok-client.server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { modelChat } from "./model-client.server";
 
-describe("grokChat", () => {
+describe("modelChat", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  beforeEach(() => {
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
   });
 
   it("returns text and model on success", async () => {
@@ -11,7 +16,7 @@ describe("grokChat", () => {
       new Response(
         JSON.stringify({
           choices: [{ message: { content: "  hello  " } }],
-          model: "grok-test",
+          model: "model-test",
         }),
         { status: 200 },
       ),
@@ -19,12 +24,12 @@ describe("grokChat", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      grokChat("test-key", {
+      modelChat("test-key", {
         messages: [{ role: "user", content: "hi" }],
         maxTokens: 10,
         temperature: 0.2,
       }),
-    ).resolves.toEqual({ text: "hello", model: "grok-test" });
+    ).resolves.toEqual({ text: "hello", model: "model-test" });
   });
 
   it("returns null on non-2xx responses and logs the status without the key", async () => {
@@ -34,12 +39,12 @@ describe("grokChat", () => {
       vi
         .fn()
         .mockResolvedValue(
-          new Response("Incorrect API key provided: xai-abc123secret", { status: 401 }),
+          new Response("Incorrect API key provided: partner-abc123secret", { status: 401 }),
         ),
     );
 
     await expect(
-      grokChat("test-key", {
+      modelChat("test-key", {
         messages: [{ role: "user", content: "hi" }],
         maxTokens: 10,
         temperature: 0.2,
@@ -48,6 +53,26 @@ describe("grokChat", () => {
     expect(log).toHaveBeenCalledTimes(1);
     expect(String(log.mock.calls[0][0])).toContain("401");
     expect(String(log.mock.calls[0][0])).not.toContain("abc123secret");
+    log.mockRestore();
+  });
+
+  it("keeps upstream error text readable when the configured endpoint needs no key", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("PRECOG_LLM_API_KEY", "");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("server unavailable", { status: 503 })),
+    );
+
+    await expect(
+      modelChat("", {
+        messages: [{ role: "user", content: "hi" }],
+        maxTokens: 10,
+        temperature: 0.2,
+      }),
+    ).resolves.toBeNull();
+
+    expect(String(log.mock.calls[0][0])).toContain("server unavailable");
     log.mockRestore();
   });
 
@@ -62,7 +87,7 @@ describe("grokChat", () => {
     );
 
     await expect(
-      grokChat("test-key", {
+      modelChat("test-key", {
         messages: [{ role: "user", content: "hi" }],
         maxTokens: 10,
         temperature: 0.2,
@@ -78,9 +103,9 @@ describe("grokChat", () => {
       temperature: 0.2,
     };
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("slow", "TimeoutError")));
-    await expect(grokChat("test-key", options)).resolves.toBeNull();
+    await expect(modelChat("test-key", options)).resolves.toBeNull();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-    await expect(grokChat("test-key", options)).resolves.toBeNull();
+    await expect(modelChat("test-key", options)).resolves.toBeNull();
 
     expect(String(log.mock.calls[0][0])).toMatch(/no answer within 20s/);
     expect(String(log.mock.calls[1][0])).toMatch(/TypeError: fetch failed/);
@@ -93,7 +118,7 @@ describe("grokChat", () => {
       new Response(
         JSON.stringify({
           choices: [{ message: { content: "answer" } }],
-          model: "grok-test",
+          model: "model-test",
           usage: { prompt_tokens: 120, completion_tokens: 45, total_tokens: 165 },
         }),
         { status: 200 },
@@ -101,7 +126,7 @@ describe("grokChat", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await grokChat("xai-secretkey", {
+    await modelChat("partner-secretkey", {
       messages: [{ role: "user", content: "private owner text" }],
       maxTokens: 10,
       temperature: 0.2,
@@ -110,11 +135,11 @@ describe("grokChat", () => {
 
     expect(info).toHaveBeenCalledTimes(1);
     const line = String(info.mock.calls[0][0]);
-    expect(line.startsWith("[grok] usage ")).toBe(true);
-    const parsed = JSON.parse(line.slice("[grok] usage ".length));
+    expect(line.startsWith("[model] usage ")).toBe(true);
+    const parsed = JSON.parse(line.slice("[model] usage ".length));
     expect(parsed).toMatchObject({
       feature: "review",
-      model: "grok-test",
+      model: "model-test",
       promptTokens: 120,
       completionTokens: 45,
       totalTokens: 165,
@@ -138,9 +163,9 @@ describe("grokChat", () => {
       temperature: 0.2,
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("busy", { status: 503 })));
-    await grokChat("test-key", options);
+    await modelChat("test-key", options);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("slow", "TimeoutError")));
-    await grokChat("test-key", options);
+    await modelChat("test-key", options);
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -149,10 +174,10 @@ describe("grokChat", () => {
         }),
       ),
     );
-    await grokChat("test-key", options);
+    await modelChat("test-key", options);
 
     const lines = info.mock.calls.map((call) =>
-      JSON.parse(String(call[0]).slice("[grok] usage ".length)),
+      JSON.parse(String(call[0]).slice("[model] usage ".length)),
     );
     expect(lines.map((l) => l.outcome)).toEqual(["http_503", "timeout", "empty"]);
     for (const l of lines) {
@@ -177,24 +202,24 @@ describe("grokChat", () => {
       new Response(
         JSON.stringify({
           choices: [{ message: { content: "answer" } }],
-          model: "grok-test",
+          model: "model-test",
           usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
         }),
         { status: 200 },
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    await grokChat("test-key", options);
+    await modelChat("test-key", options);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("busy", { status: 503 })));
-    await grokChat("test-key", options);
+    await modelChat("test-key", options);
 
     const logged = info.mock.calls.map((call) =>
-      JSON.parse(String(call[0]).slice("[grok] usage ".length)),
+      JSON.parse(String(call[0]).slice("[model] usage ".length)),
     );
     expect(onUsage.mock.calls.map((c) => c[0])).toEqual(logged);
     expect(onUsage.mock.calls[0][0]).toMatchObject({
       feature: "coach",
-      model: "grok-test",
+      model: "model-test",
       promptTokens: 12,
       completionTokens: 4,
       outcome: "ok",
@@ -218,7 +243,7 @@ describe("grokChat", () => {
       ),
     );
     await expect(
-      grokChat("test-key", {
+      modelChat("test-key", {
         messages: [{ role: "user", content: "hi" }],
         maxTokens: 10,
         temperature: 0.2,
@@ -243,10 +268,10 @@ describe("grokChat", () => {
       temperature: 0.2,
     };
 
-    await grokChat("test-key", options);
+    await modelChat("test-key", options);
     const firstInit = fetchMock.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(firstInit.body))).not.toHaveProperty("response_format");
-    await grokChat("test-key", { ...options, jsonObject: true });
+    await modelChat("test-key", { ...options, jsonObject: true });
     const secondInit = fetchMock.mock.calls[1][1] as RequestInit;
     expect(JSON.parse(String(secondInit.body))).toMatchObject({
       response_format: { type: "json_object" },

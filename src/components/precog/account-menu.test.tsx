@@ -316,15 +316,10 @@ describe("the weekly digest switch in the header", () => {
 });
 
 describe("the note when the digest cannot reach the account", () => {
-  const X_NOTE =
-    "Precog cannot email the address linked to your X sign-in. Sign in with Google or email and password to get the weekly digest.";
   const UNCONFIRMED_NOTE =
-    "Precog cannot confirm this email address. Sign in with Google using an address Google has confirmed, or with email and password, to get the weekly digest.";
+    "Precog cannot confirm this email address. Confirm it from the link Precog sent to get the weekly digest.";
 
-  function withProblem(
-    weeklyDigest: boolean,
-    digestAddressProblem: "x_only" | "unconfirmed" | null,
-  ): string {
+  function withProblem(weeklyDigest: boolean, digestAddressProblem: "unconfirmed" | null): string {
     return renderToStaticMarkup(
       <DigestSwitch
         state={{
@@ -338,18 +333,16 @@ describe("the note when the digest cannot reach the account", () => {
     );
   }
 
-  it("says why, keyed on the reason, while the digest is on", async () => {
+  it("explains an unconfirmed address while the digest is on", async () => {
     const { digestAddressNote } = await import("./account-menu");
-    expect(digestAddressNote("x_only")).toBe(X_NOTE);
     expect(digestAddressNote("unconfirmed")).toBe(UNCONFIRMED_NOTE);
     expect(digestAddressNote(null)).toBeNull();
-    expect(withProblem(true, "x_only")).toContain(X_NOTE);
     expect(withProblem(true, "unconfirmed")).toContain(UNCONFIRMED_NOTE);
   });
 
   it("prints nothing when the address is fine, or while the digest is off", () => {
     expect(withProblem(true, null)).not.toContain("cannot reach you");
-    expect(withProblem(false, "x_only")).not.toContain("cannot reach you");
+    expect(withProblem(false, "unconfirmed")).not.toContain("cannot reach you");
     expect(withProblem(true, null)).toContain("Weekly digest: on");
   });
 });

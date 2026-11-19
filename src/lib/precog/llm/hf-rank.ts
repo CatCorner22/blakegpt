@@ -16,7 +16,7 @@ export const MIN_EMBED_SCORE = 0.35;
 /** Below this gap, two statements are too close to call one more relevant. */
 export const MIN_EMBED_MARGIN = 0.04;
 
-export type RankerName = "huggingface" | "grok" | "both";
+export type RankerName = "huggingface" | "model" | "both";
 
 type HfFetch = (url: string, init?: RequestInit) => Promise<Response>;
 

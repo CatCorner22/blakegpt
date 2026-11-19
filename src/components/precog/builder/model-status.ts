@@ -1,22 +1,22 @@
-import type { DailyLimitInfo, GrokAccess } from "@/lib/precog/llm/types";
+import type { DailyLimitInfo, ModelAccess } from "@/lib/precog/llm/types";
 
-/** Shown next to words Grok wrote. Precog does not check them. */
-export const UNCHECKED_MODEL_NOTE = "Grok wrote this. Precog did not check the words.";
+/** Shown next to words Voyager wrote. Precog does not check them. */
+export const UNCHECKED_MODEL_NOTE = "Voyager wrote this. Precog did not check the words.";
 
 /**
  * Why a suggestion or review came from the built-in rules rather than
- * Grok, in one sentence for the owner; null when Grok answered. When today's
+ * Voyager, in one sentence for the owner; null when Voyager answered. When today's
  * AI limit is the reason, `dailyLimit` says which ceiling was met and the
  * figures in force, so the sentence names the plan.
  */
 export function ruleBasedReason(
-  source: "grok" | "local",
-  status?: GrokAccess,
+  source: "model" | "local",
+  status?: ModelAccess,
   dailyLimit?: DailyLimitInfo,
 ): string | null {
-  if (source === "grok") return null;
+  if (source === "model") return null;
   switch (status) {
-    case "no_api_key":
+    case "not_configured":
       return "This copy of Precog has no AI suggestions set up, so these come from built-in rules.";
     case "unauthenticated":
       return "Sign in to get AI suggestions; these come from built-in rules.";

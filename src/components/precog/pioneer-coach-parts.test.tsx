@@ -102,21 +102,21 @@ describe("briefAuthorLine", () => {
     expect(briefAuthorLine({ modelStatus: "failed" })).toBe(
       "Written by Precog's rules from your records. No AI wrote it.",
     );
-    expect(briefAuthorLine({ modelStatus: "answered", model: "grok-4.5" })).toBe(
-      "Grok (grok-4.5) picked the moves most relevant to your question. Precog's rules wrote every word.",
+    expect(briefAuthorLine({ modelStatus: "answered", model: "test-model" })).toBe(
+      "Voyager (test-model) picked the moves most relevant to your question. Precog's rules wrote every word.",
     );
   });
 });
 
 describe("briefAuthorLine with an empty selection", () => {
-  it("does not say Grok picked moves when it picked none", () => {
-    expect(briefAuthorLine({ modelStatus: "answered", model: "grok-4.5", highlightIds: [] })).toBe(
-      "Written by Precog's rules from your records. No AI wrote it.",
-    );
+  it("does not say Voyager picked moves when it picked none", () => {
     expect(
-      briefAuthorLine({ modelStatus: "answered", model: "grok-4.5", highlightIds: ["move-0"] }),
+      briefAuthorLine({ modelStatus: "answered", model: "test-model", highlightIds: [] }),
+    ).toBe("Written by Precog's rules from your records. No AI wrote it.");
+    expect(
+      briefAuthorLine({ modelStatus: "answered", model: "test-model", highlightIds: ["move-0"] }),
     ).toBe(
-      "Grok (grok-4.5) picked the moves most relevant to your question. Precog's rules wrote every word.",
+      "Voyager (test-model) picked the moves most relevant to your question. Precog's rules wrote every word.",
     );
   });
 });
@@ -412,11 +412,11 @@ describe("extraWarnings", () => {
     const r = result({
       warnings: [
         "Nothing is at a red alert.",
-        "Sign in to let Grok pick the most relevant moves. Precog's rules wrote this brief.",
+        "Sign in to let Voyager pick the most relevant moves. Precog's rules wrote this brief.",
       ],
     });
     expect(extraWarnings(r)).toEqual([
-      "Sign in to let Grok pick the most relevant moves. Precog's rules wrote this brief.",
+      "Sign in to let Voyager pick the most relevant moves. Precog's rules wrote this brief.",
     ]);
   });
 

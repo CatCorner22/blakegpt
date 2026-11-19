@@ -17,7 +17,7 @@ Bracketed values such as `[NEON PITR DAYS]` in this file are facts the owner fil
 | Variable                       | Purpose                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                 | Neon Postgres                                                                                           |
-| Better Auth / OAuth            | Per-app credentials from project settings                                                               |
+| Better Auth                    | Precog email/password sign-in                                                                           |
 | `SUPPORT_EMAIL`                | Support mailbox; baked at build; production refuses without it or with an operator placeholder          |
 | `CRON_SECRET`                  | Bearer token Vercel sends to `/api/cron/digest`; without it the weekly job is refused                   |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Reminder, digest, confirmation and invitation email through Resend; without both, Precog sends no email |
@@ -25,8 +25,9 @@ Bracketed values such as `[NEON PITR DAYS]` in this file are facts the owner fil
 | `STRIPE_*`                     | Firm billing when enabled, with a price id per tier and interval (see Stripe)                           |
 | `PRECOG_OPERATOR_IDS`          | User ids of Precog's operators, comma-separated; only they open `/operator` (see Operator)              |
 | QuickBooks                     | Intuit app credentials for read-only sync                                                               |
-| `XAI_API_KEY`                  | Optional server-side AI features                                                                        |
-| `PRECOG_LLM_BASE_URL`          | Self-hosted OpenAI-compatible model in place of xAI, with `PRECOG_LLM_MODEL` and `PRECOG_LLM_API_KEY`   |
+| `PRECOG_LLM_BASE_URL`          | Optional business-configured model server; without it Voyager uses built-in rules                       |
+| `PRECOG_LLM_MODEL`             | Model name served by the configured endpoint                                                            |
+| `PRECOG_LLM_API_KEY`           | Optional key for the configured endpoint                                                                |
 | `LLM_DAILY_PER_USER_PAID`      | Daily model calls per account on the Firm plan or an Assessment inside its window (default 400)         |
 | `LLM_DAILY_FREE_POOL`          | Daily model calls every free account together may spend of the global ceiling (default 500 of 1500)     |
 | `SENTRY_DSN`                   | Error tracker (see Monitoring)                                                                          |
@@ -53,7 +54,7 @@ Bracketed values such as `[NEON PITR DAYS]` in this file are facts the owner fil
 
 ## Log drain
 
-Daily call counts live in Postgres (`llm_daily_usage`, migration 0012), so the daily ceiling holds across instances, and so does one record per call (`llm_usage`, migration 0049: account, feature, model, token counts and outcome, kept 13 months; see "AI calls" under Performance baseline). Only the latency lives in the function log alone, on the `[grok] usage` line. Vercel keeps function logs for a short time, so a drain is optional: set one to keep the latency, or the lines past 13 months:
+Daily call counts live in Postgres (`llm_daily_usage`, migration 0012), so the daily ceiling holds across instances, and so does one record per call (`llm_usage`, migration 0049: account, feature, model, token counts and outcome, kept 13 months; see "AI calls" under Performance baseline). Only the latency lives in the function log alone, on the `[model] usage` line. Vercel keeps function logs for a short time, so a drain is optional: set one to keep the latency, or the lines past 13 months:
 
 - Vercel project → Settings → Log Drains → add a drain.
 - Sources: Function and Build. Format: NDJSON.
@@ -87,7 +88,7 @@ On `partial: true` nothing is lost: each stage logs or stamps what it finished, 
 What there is to back up:
 
 - One Neon database holds everything Precog stores: accounts, businesses and their history, firm records, report versions, the evidence log, shares, QuickBooks tokens and readings, and the procedure pictures (stored in the database, not in object storage).
-- Stripe holds its own customer, invoice and tax records; the auth broker holds its own sign-in records. Precog does not back those up and cannot restore them.
+- Stripe holds its own customer, invoice and tax records. Precog does not back those up and cannot restore them.
 
 Mechanism: Neon point-in-time restore from the write-ahead log. Window: `[NEON PITR DAYS]` days (set in the Neon project settings; the Neon plan sets the ceiling). Recovery point objective: seconds (any timestamp inside the window). Recovery time objective: `[RTO]`, to be replaced by the figure the first drill measures.
 
@@ -166,12 +167,12 @@ Precog runs no analytics script in the browser; these counts are the only produc
 
 `/operator` is the support page of Precog's operator (not a firm or business owner).
 
-- Who: the user ids in `PRECOG_OPERATOR_IDS`, comma-separated, read on the server only. Unset means nobody. Sign in with Google or a confirmed email-and-password account, then read the id in the Neon SQL editor: `select id, email from "user" where lower(email) = lower('<address>');`.
+- Who: the user ids in `PRECOG_OPERATOR_IDS`, comma-separated, read on the server only. Unset means nobody. Sign in with a confirmed email-and-password account, then read the id in the Neon SQL editor: `select id, email from "user" where lower(email) = lower('<address>');`.
 - Anyone else, signed in or out, sees Precog's not-found text, and every operator server function answers 404, so the page reveals nothing about itself.
-- Find an account: by its exact email address (sent in a POST body, so the address never sits in a URL or a request log; no listing, no partial match). It shows whether the address is confirmed, the sign-in providers, the day the account was created, the plan as the Firm page names it (tier, client limit, and the day it ends or closes), the firm and role, live and deleted businesses, the subscription and the Stripe customer, the last weekly digest, an email suppression, the last QuickBooks failure, today's model calls against the plan's limit, and the account's milestones.
+- Find an account: by its exact email address (sent in a POST body, so the address never sits in a URL or a request log; no listing, no partial match). It shows whether the address is confirmed and has an email-and-password sign-in, the day the account was created, the plan as the Firm page names it (tier, client limit, and the day it ends or closes), the firm and role, live and deleted businesses, the subscription and the Stripe customer, the last weekly digest, an email suppression, the last QuickBooks failure, today's model calls against the plan's limit, and the account's milestones.
 - Link a Stripe customer: the checks of `npm run link:stripe-customer` (see "Link a Stripe customer" under Stripe), the same refusals in the same words, including Replace onto a customer whose subscription is not running while the account's own subscription still runs ("This account's subscription sub_… is still running. Cancel it in Stripe, then link."). Without Stripe configured it refuses ("Billing is not connected on this deployment").
 - Lift today's cap: deletes today's model-call count for one account, so it can call the model again today.
-- Standing counts: one read-only query per button: "Running subscriptions and their live clients", "Firms marked monthly by hand with no billing row", "X-only accounts with the digest on", "Google accounts without a confirmed address and the digest on", "Google accounts with the digest on", "Firm plans past due", "QuickBooks connections failing or lapsing within 30 days", "Firms with more than one member", "Deleted firm clients the retention rule now keeps", "Running subscriptions with no stored price yet", "Picture storage" (the size of `procedure_images`; past 5 GB, moving pictures to object storage, which is deferred work, is due) and "Accounts that set up a first business, by week (last 8 weeks)" (see Activation counts).
+- Standing counts: one read-only query per button: "Running subscriptions and their live clients", "Firms marked monthly by hand with no billing row", "Firm plans past due", "QuickBooks connections failing or lapsing within 30 days", "Firms with more than one member", "Deleted firm clients the retention rule now keeps", "Running subscriptions with no stored price yet", "Picture storage" (the size of `procedure_images`; past 5 GB, moving pictures to object storage, which is deferred work, is due) and "Accounts that set up a first business, by week (last 8 weeks)" (see Activation counts).
 - The record: on a firm's account, each lookup, link and cap lift writes an `operator_lookup`, `operator_linked_stripe` or `operator_lifted_cap` row to that firm's activity log, with the operator as the actor, in the same transaction as the change. Every action, solo accounts and counts included, also prints `[operator] <action> <target> by <operator id>` in the function log.
 
 ## Release tags
@@ -220,7 +221,7 @@ From `npm run bench`, median of 3 runs on a development container. The sizes are
 
 - **First load:** run `npm run build`, serve the compiled build (CI runs `node scripts/serve-built-test.mjs`), then run `npm run perf:first-load -- http://localhost:8080`. It prints a table and a JSON line and exits 1 naming each page over budget. CI runs it in the "Authenticated compiled-server safety" job.
 - **Register engines:** run `npm run bench`. It prints a table and a JSON line. It is not part of CI, because shared runners time too unevenly to fail on.
-- **AI calls:** every model call writes one `llm_usage` row (migration 0049: the account, feature, model, prompt and completion tokens, outcome and time; no text), kept 13 months and deleted with the account, and that table is the record. The view `llm_usage_daily` sums calls and tokens per day, feature and model: `select * from llm_usage_daily where day >= current_date - 30 order by day desc, calls desc;` in the Neon SQL editor. The call also logs one `[grok] usage {...}` line with the same counts plus total tokens and latency in milliseconds, and the outcome (`ok`, `empty`, `timeout`, `error` or `http_<status>`). The line holds no prompt text and no key; search the Vercel function logs for `[grok] usage` for latency, and keep them through the log drain only if you want them past Vercel's own retention.
+- **AI calls:** every model call writes one `llm_usage` row (migration 0049: the account, feature, model, prompt and completion tokens, outcome and time; no text), kept 13 months and deleted with the account, and that table is the record. The view `llm_usage_daily` sums calls and tokens per day, feature and model: `select * from llm_usage_daily where day >= current_date - 30 order by day desc, calls desc;` in the Neon SQL editor. The call also logs one `[model] usage {...}` line with the same counts plus total tokens and latency in milliseconds, and the outcome (`ok`, `empty`, `timeout`, `error` or `http_<status>`). The line holds no prompt text and no key; search the Vercel function logs for `[model] usage` for latency, and keep them through the log drain only if you want them past Vercel's own retention.
 
 ### Production facts the owner checks
 
@@ -261,12 +262,11 @@ Database
 Sign-in
 
 - [ ] `BETTER_AUTH_URL` is the https production address and `BETTER_AUTH_SECRET` has 32 or more characters (the production build refuses otherwise).
-- [ ] `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` are the production broker client (the build warns when Google and X sign-in lack them).
 
 Support and legal
 
 - [ ] `SUPPORT_EMAIL` is set and the mailbox is read.
-- [ ] `OPERATOR_LEGAL_NAME`, `OPERATOR_ADDRESS` and `GOVERNING_LAW` in `src/lib/precog/legal/operator.ts` hold the real values (the production build refuses while a bracketed placeholder remains); `AUTH_BROKER_OPERATOR` and `XAI_API_DATA_POLICY_URL` too.
+- [ ] `OPERATOR_LEGAL_NAME`, `OPERATOR_ADDRESS` and `GOVERNING_LAW` in `src/lib/precog/legal/operator.ts` hold the real values (the production build refuses while a bracketed placeholder remains).
 - [ ] A trademark search on "Precog" has been done.
 - [ ] `PRECOG_OPERATOR_IDS` holds the operator's user id (Operator above).
 
@@ -295,8 +295,7 @@ QuickBooks
 
 Model
 
-- [ ] `XAI_API_KEY` is set, the vendor-side monthly cap is `[XAI MONTHLY CAP]` and the prices used for the cost estimate are `[XAI PRICES]`.
-- [ ] xAI's retention terms for API data have been read and `XAI_API_DATA_POLICY_URL` points at them.
+- [ ] If a model server is configured, its provider, data policy and cost limits are documented for the business.
 
 Error reporting
 

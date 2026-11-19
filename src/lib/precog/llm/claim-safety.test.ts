@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runGrokAgentLoop, type LocalAgentRun } from "./agent-loop";
+import { runModelAgentLoop, type LocalAgentRun } from "./agent-loop";
 import { callModel } from "./guard.server";
 
 vi.mock("./guard.server", () => ({ callModel: vi.fn() }));
-const access = { userId: "fixture-owner", grok: "allowed" as const };
+const access = { userId: "fixture-owner", model: "allowed" as const };
 const local: LocalAgentRun = {
   source: "local-agent",
   question: "What do I check first?",
@@ -43,9 +43,9 @@ const local: LocalAgentRun = {
   },
 };
 const answer = (text: string) => {
-  vi.stubEnv("XAI_API_KEY", "fixture-not-a-real-key");
+  vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
   vi.mocked(callModel).mockResolvedValue({ text, model: "fixture-model" });
-  return runGrokAgentLoop(local, access);
+  return runModelAgentLoop(local, access);
 };
 afterEach(() => {
   vi.unstubAllEnvs();

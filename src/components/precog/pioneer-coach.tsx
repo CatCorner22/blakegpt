@@ -116,7 +116,8 @@ export function PioneerCoach({ onNavigate }: { onNavigate?: NavFn }) {
           modelStatus: picked.modelStatus,
           model: picked.model,
           ranker: picked.ranker,
-          source: picked.ranker === "grok" || picked.ranker === "both" ? "grok-agent" : prev.source,
+          source:
+            picked.ranker === "model" || picked.ranker === "both" ? "model-agent" : prev.source,
           warnings,
         };
       });
@@ -202,8 +203,8 @@ export function PioneerCoach({ onNavigate }: { onNavigate?: NavFn }) {
             <p>
               Precog&rsquo;s rules write every answer from your records: duty conflicts, who knows
               what, scenarios, guidance and real cases. Rankings use Precog&rsquo;s weights, not
-              measurements. When you are signed in, a Hugging Face model ranks those moves, and Grok
-              may pick from the same list. Neither one writes or changes the words.
+              measurements. When you are signed in, a Hugging Face model ranks those moves, and
+              Voyager may pick from the same list. Neither one writes or changes the words.
             </p>
           }
         />

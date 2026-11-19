@@ -35,8 +35,6 @@ function operatorFixture(name, law) {
       'export const OPERATOR_LEGAL_NAME = "Example Operator LLC";',
       'export const OPERATOR_ADDRESS = "1 Main Street, Austin, TX 78701";',
       `export const GOVERNING_LAW = "${law}";`,
-      'export const AUTH_BROKER_OPERATOR = "Example Broker Inc.";',
-      'export const XAI_API_DATA_POLICY_URL = "https://x.ai/legal/example";',
       "export const SUPPORT_EMAIL: string =",
       '  (import.meta.env.SUPPORT_EMAIL as string | undefined)?.trim() || "[SUPPORT EMAIL]";',
       "",
@@ -126,21 +124,13 @@ describe("migrate.mjs", () => {
     },
   );
 
-  it("builds a fully set production deploy, warning when Google and X sign-in lack their client", () => {
+  it("builds a production deploy without external sign-in credentials", () => {
     // Port 9 refuses the connection, so a run that passes the gate fails only
     // when it reaches the database.
-    const partial = migrate({ ...PRODUCTION, GROK_AUTH_CLIENT_ID: "client" });
-    expect(partial.stderr).not.toContain("Refusing a production build");
-    expect(partial.stderr).toContain(
-      "warning: GROK_AUTH_CLIENT_ID and GROK_AUTH_CLIENT_SECRET are not both set",
-    );
-    expect(partial.stderr).toContain("[migrate] failed:");
-    const full = migrate({
-      ...PRODUCTION,
-      GROK_AUTH_CLIENT_ID: "client",
-      GROK_AUTH_CLIENT_SECRET: "secret",
-    });
-    expect(full.stderr).not.toContain("GROK_AUTH_CLIENT_ID");
+    const run = migrate(PRODUCTION);
+    expect(run.stderr).not.toContain("Refusing a production build");
+    expect(run.stderr).not.toContain("AUTH_CLIENT");
+    expect(run.stderr).toContain("[migrate] failed:");
   });
 
   it("leaves the database alone on a preview build, even with DATABASE_URL set", () => {

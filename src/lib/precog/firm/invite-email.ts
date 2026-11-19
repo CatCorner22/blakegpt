@@ -12,7 +12,7 @@ export function renderFirmInvitation(input: {
   const intro = `${who} to join ${input.firmName} on Precog as a ${input.role}.`;
   const duty = ROLE_DUTY[input.role];
   const closing =
-    "The link works once and expires in two weeks. Sign in with Google under this address, or with an email-and-password account that has confirmed it, then open the link to join.";
+    "The link works once and expires in two weeks. Sign in with the invited email address, confirm it, then open this link to join.";
   return {
     subject: `Join ${input.firmName} on Precog`,
     text: [intro, duty, "", input.link, "", closing].join("\n"),

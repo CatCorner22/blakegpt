@@ -2,19 +2,19 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { utcDateKey } from "../dates";
 import { defaultProfile } from "../practice-profile";
-import { runGrokAgentLoop } from "../llm/agent-loop";
+import { runModelAgentLoop } from "../llm/agent-loop";
 import { spendCallerDailyUnit } from "../llm/guard.server";
 import { HF_EMBED_MODEL } from "../llm/hf-rank";
 import { readPioneerRequest, selectPioneerHighlights } from "./pioneer-answer";
 
 vi.mock("../llm/agent-loop", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../llm/agent-loop")>()),
-  runGrokAgentLoop: vi.fn(),
+  runModelAgentLoop: vi.fn(),
 }));
 vi.mock("../llm/guard.server", () => ({ spendCallerDailyUnit: vi.fn() }));
 
 const REJECTED_WARNING =
-  "Grok's reply failed Precog's checks and is not shown. Precog's rules wrote this brief.";
+  "Voyager's reply failed Precog's checks and is not shown. Precog's rules wrote this brief.";
 
 /** Every event in call order: budget units, model calls starting and ending. */
 let events: string[] = [];
@@ -27,16 +27,16 @@ function request() {
   });
 }
 
-/** Grok answers with these ids (or an empty selection) as a selection that passed the protocol. */
-function grokSelects(ids: string[]) {
-  vi.mocked(runGrokAgentLoop).mockImplementation(async (local) => {
-    events.push("grok-start");
+/** Voyager answers with these ids (or an empty selection) as a selection that passed the protocol. */
+function modelSelects(ids: string[]) {
+  vi.mocked(runModelAgentLoop).mockImplementation(async (local) => {
+    events.push("model-start");
     return {
       ...local,
       modelStatus: "answered" as const,
       highlightIds: ids,
-      source: "grok-agent" as const,
-      model: "grok-4.5",
+      source: "model-agent" as const,
+      model: "test-model",
     };
   });
 }
@@ -73,18 +73,18 @@ describe("selectPioneerHighlights", () => {
     vi.clearAllMocks();
   });
 
-  it("says Grok's reply is not shown when the encoder rejects every id it picked", async () => {
-    // Grok picks the last statement; the encoder ties the first three and
+  it("says Voyager's reply is not shown when the encoder rejects every id it picked", async () => {
+    // Voyager picks the last statement; the encoder ties the first three and
     // ranks the last one low, so no id agrees and no statement is clearly nearest.
     encoderScores((i) => (i < 3 ? 0.5 : 0.1));
-    vi.mocked(runGrokAgentLoop).mockImplementation(async (local) => ({
+    vi.mocked(runModelAgentLoop).mockImplementation(async (local) => ({
       ...local,
       modelStatus: "answered" as const,
       highlightIds: [`move-${Math.min(local.brief.decisions.length, 6) - 1}`],
-      source: "grok-agent" as const,
-      model: "grok-4.5",
+      source: "model-agent" as const,
+      model: "test-model",
     }));
-    const res = await selectPioneerHighlights(request(), { userId: "owner-1", grok: "allowed" });
+    const res = await selectPioneerHighlights(request(), { userId: "owner-1", model: "allowed" });
     if (!res.ok) throw new Error(res.error);
     expect(res.highlightIds).toEqual([]);
     expect(res.ranker).toBeUndefined();
@@ -93,10 +93,10 @@ describe("selectPioneerHighlights", () => {
     expect(res.warning).toBe(REJECTED_WARNING);
   });
 
-  it("marks nothing and warns of nothing when Grok finds no statement relevant", async () => {
+  it("marks nothing and warns of nothing when Voyager finds no statement relevant", async () => {
     encoderScores((i) => (i === 0 ? 0.9 : 0.1));
-    grokSelects([]);
-    const res = await selectPioneerHighlights(request(), { userId: "owner-1", grok: "allowed" });
+    modelSelects([]);
+    const res = await selectPioneerHighlights(request(), { userId: "owner-1", model: "allowed" });
     if (!res.ok) throw new Error(res.error);
     expect(res.highlightIds).toEqual([]);
     expect(res.ranker).toBeUndefined();
@@ -104,27 +104,27 @@ describe("selectPioneerHighlights", () => {
     expect(res.warning).toBeNull();
   });
 
-  it("starts the Grok call before the Hugging Face reply, after the Hugging Face unit is spent", async () => {
+  it("starts the Voyager call before the Hugging Face reply, after the Hugging Face unit is spent", async () => {
     let release: () => void = () => {};
-    const grokStarted = new Promise<void>((resolve) => {
+    const modelStarted = new Promise<void>((resolve) => {
       release = resolve;
     });
-    // The encoder replies once Grok has started, or after 300 ms when the
+    // The encoder replies once Voyager has started, or after 300 ms when the
     // calls run one after the other.
     encoderScores(
       (i) => (i === 0 ? 0.9 : 0.1),
-      Promise.race([grokStarted, new Promise((resolve) => setTimeout(resolve, 300))]),
+      Promise.race([modelStarted, new Promise((resolve) => setTimeout(resolve, 300))]),
     );
-    vi.mocked(runGrokAgentLoop).mockImplementation(async (local) => {
-      events.push("grok-start");
+    vi.mocked(runModelAgentLoop).mockImplementation(async (local) => {
+      events.push("model-start");
       release();
       return { ...local, modelStatus: "answered" as const, highlightIds: ["move-0"] };
     });
-    const res = await selectPioneerHighlights(request(), { userId: "owner-1", grok: "allowed" });
+    const res = await selectPioneerHighlights(request(), { userId: "owner-1", model: "allowed" });
     if (!res.ok) throw new Error(res.error);
     expect(events.indexOf("hf-unit")).toBe(0);
     expect(events.indexOf("hf-unit")).toBeLessThan(events.indexOf("hf-start"));
-    expect(events.indexOf("grok-start")).toBeLessThan(events.indexOf("hf-end"));
+    expect(events.indexOf("model-start")).toBeLessThan(events.indexOf("hf-end"));
     expect(res.highlightIds).toEqual(["move-0"]);
     expect(res.ranker).toBe("both");
   });
@@ -132,19 +132,19 @@ describe("selectPioneerHighlights", () => {
   it("makes no Hugging Face call when its daily unit is refused", async () => {
     vi.mocked(spendCallerDailyUnit).mockResolvedValue({ budget: "spent", plan: "free" });
     encoderScores(() => 0.5);
-    grokSelects(["move-0"]);
-    const res = await selectPioneerHighlights(request(), { userId: "owner-1", grok: "allowed" });
+    modelSelects(["move-0"]);
+    const res = await selectPioneerHighlights(request(), { userId: "owner-1", model: "allowed" });
     if (!res.ok) throw new Error(res.error);
     expect(fetch).not.toHaveBeenCalled();
-    expect(res.ranker).toBe("grok");
+    expect(res.ranker).toBe("model");
   });
 
   it("names the encoder from hf-rank, not a second copy of its name", async () => {
     encoderScores((i) => (i === 0 ? 0.9 : 0.1));
-    vi.stubEnv("XAI_API_KEY", "");
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "");
     const res = await selectPioneerHighlights(request(), {
       userId: "owner-1",
-      grok: "no_api_key",
+      model: "not_configured",
     });
     if (!res.ok) throw new Error(res.error);
     expect(res.ranker).toBe("huggingface");

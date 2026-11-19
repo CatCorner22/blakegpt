@@ -4,12 +4,7 @@ import { DELETED_RETENTION_DAYS, HISTORY_RETENTION_DAYS } from "@/lib/precog/bus
 import { formatDay } from "@/lib/precog/dates";
 import { RETENTION_YEARS_MAX, RETENTION_YEARS_MIN } from "@/lib/precog/firm/engagement-row";
 import { LEGAL_EFFECTIVE } from "@/lib/precog/legal";
-import {
-  AUTH_BROKER_OPERATOR,
-  SUPPORT_EMAIL,
-  XAI_API_DATA_POLICY_URL,
-  isPlaceholder,
-} from "@/lib/precog/legal/operator";
+import { SUPPORT_EMAIL } from "@/lib/precog/legal/operator";
 import { PASSCODE_ATTEMPT_RETENTION_DAYS } from "@/lib/precog/share/share-limits";
 import { SHARE_VIEW_RETENTION_DAYS } from "@/lib/precog/share/share-store";
 
@@ -54,11 +49,9 @@ const MODEL_CALLS_PAID_PER_DAY = 400;
 const PROCESSORS: ReadonlyArray<readonly [string, string]> = [
   ["Vercel", "hosting"],
   ["Neon", "database"],
-  [AUTH_BROKER_OPERATOR, "Google and X sign-in"],
-  ["Google, X", "sign-in providers"],
   ["Resend", "email"],
   ["Stripe", "payment"],
-  ["xAI", "model calls"],
+  ["Business-configured model server", "optional model calls"],
   ["Intuit", "QuickBooks, only when connected"],
   ["Sentry or the error relay Precog's operator sets", "error reports without prompt text"],
 ];
@@ -146,7 +139,7 @@ function TwoColumnTable({
 
 function PrivacyPage() {
   return (
-    <main className="mx-auto min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-2xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-2xl px-6 py-10">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Precog</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Privacy</h1>
       <p className="mt-1 text-xs text-muted">Effective {formatDay(LEGAL_EFFECTIVE)}</p>
@@ -178,15 +171,15 @@ function PrivacyPage() {
       <section className={sectionCls}>
         <h2 className={headingCls}>What Precog syncs when you sign in</h2>
         <p>
-          Sign-in uses Google or X through Precog’s auth broker, operated by {AUTH_BROKER_OPERATOR},
-          or an email and password that Precog keeps. For an email account the database holds your
-          name, your email address, and a hash of the password, never the password itself. The
-          session cookie stays with Precog. A session ends seven days after Precog last refreshed
-          it, which Precog does at most once a day while you use it; Sessions in the account menu
-          ends your other sessions, or every session, and lists your signed-in devices within a day
-          of signing in. A signed-in save stores the business profile, assessment snapshots, and
-          firm workspace (firm name, client list, engagement stamps, and the monthly review log) in
-          the database, tied to your account. Another customer’s account cannot read them.
+          Sign-in uses the email address and password for your Precog account. Precog’s database
+          holds your name, email address, and a hash of your password, never the password itself.
+          The session cookie stays with Precog. A session ends seven days after Precog last
+          refreshed it, which Precog does at most once a day while you use it; Sessions in the
+          account menu ends your other sessions, or every session, and lists your signed-in devices
+          within a day of signing in. A signed-in save stores the business profile, assessment
+          snapshots, and firm workspace (firm name, client list, engagement stamps, and the monthly
+          review log) in the database, tied to your account. Another customer’s account cannot read
+          them.
         </p>
         <p>
           Precog also notes the day you first set up a business, first locked a report version,
@@ -223,16 +216,15 @@ function PrivacyPage() {
         <p>
           Precog sends email through Resend. For an email account, Precog emails a link to confirm
           your address and, when you ask, a link to set a new password. Precog may remove a new
-          sign-up that nobody confirms within a day. An account whose address Precog can vouch for
-          (a confirmed email-and-password address, or a confirmed Google address) and a business of
-          its own or of its firm gets a weekly digest at its sign-in address listing what is due. An
-          X sign-in carries no address Precog can email. Precog sends it only after you say yes,
-          once, when you sign in; turn it off any time from Weekly digest in the header or under
-          Reminders in the firm workspace, or with the stop link in every digest. When you enter a
-          client owner’s address on their client card, Precog emails the owner once to ask whether
-          they agree to reminders, and sends that address nothing more until the owner agrees. Each
-          reminder has a link that stops them. When a firm owner invites a colleague, or a business
-          owner invites a firm, Precog emails the invitation.
+          sign-up that nobody confirms within a day. An account with a confirmed email address and a
+          business of its own or of its firm gets a weekly digest at its sign-in address listing
+          what is due. Precog sends it only after you say yes, once, when you sign in; turn it off
+          any time from Weekly digest in the header or under Reminders in the firm workspace, or
+          with the stop link in every digest. When you enter a client owner’s address on their
+          client card, Precog emails the owner once to ask whether they agree to reminders, and
+          sends that address nothing more until the owner agrees. Each reminder has a link that
+          stops them. When a firm owner invites a colleague, or a business owner invites a firm,
+          Precog emails the invitation.
         </p>
         <p>
           Shared map links are separate. Anyone with the link can open that frozen map until it
@@ -318,29 +310,29 @@ function PrivacyPage() {
       <section className={sectionCls}>
         <h2 className={headingCls}>What Precog sends to the model</h2>
         <p>
-          Precog sends nothing to a model unless you are signed in and Precog has a model key.
-          Signed out, or without a key, Voyager, Review, and Suggest answer from Precog’s rules.
+          Precog sends text to a model only when you are signed in and your business has configured
+          a model server. Without one, Voyager, Review, and Suggest use Precog’s built-in rules.
           Draft steps from notes always splits the notes into steps and does not send them to a
           model.
         </p>
         <p>
           Voyager builds its brief from your profile with Precog’s rules. When you ask Voyager for a
           brief, Precog may send your question and the complete rule-based statements to Hugging
-          Face, so a sentence-similarity model can rank them and a small language model can name
-          which statements to mark. When an xAI key is set, Precog also sends that same question and
-          those statements to xAI to name statement ids. Precog keeps the statements intact. It does
-          not show text either model writes. It withholds a selection that does not name ids from
-          that brief. The encoder’s ranking is kept only when it agrees with those ids, or, when
-          they disagree, the single nearest statement.
+          Face so a sentence-similarity model can rank them. When your business configures a model
+          server, Precog also sends the question and statements there so the model can select
+          statement ids. Precog keeps the statements intact and does not show text the model writes.
+          It withholds any selection that names an id outside that brief. Without a configured model
+          server, Voyager uses the built-in rules.
         </p>
         <p>
-          Review and Suggest send text to xAI and show the model’s reply in its own words. Precog
-          trims its length but does not check what it says. <strong>Review</strong> on the How work
-          flows tab sends the business name, industry, and team size, the map’s health figures and
-          warnings, each process’s name, owners’ names, and top risk title, and the names and roles
-          of people who carry too much work. <strong>Suggest</strong> sends a process’s name,
-          description, owners’ roles, and existing risk and idea titles, the industry, and the names
-          of the available controls.
+          When configured, Review and Suggest send text to the business’s model server and show the
+          model’s reply in its own words. Precog trims the reply but does not check what it says.
+          Without a configured model server, they use built-in rules. <strong>Review</strong> on the
+          How work flows tab sends the business name, industry, and team size, the map’s health
+          figures and warnings, each process’s name, owners’ names, and top risk title, and the
+          names and roles of people who carry too much work. <strong>Suggest</strong> sends a
+          process’s name, description, owners’ roles, and existing risk and idea titles, the
+          industry, and the names of the available controls.
         </p>
         <p>
           <strong>Draft steps from notes</strong> splits the notes into steps on Precog’s server. It
@@ -356,22 +348,10 @@ function PrivacyPage() {
           Do not paste patient, customer, or account numbers into notes or questions.
         </p>
         <p>
-          Precog does not use what you enter to train a model, and sends xAI nothing for training.
-          xAI's own policy for API data is at{" "}
-          {isPlaceholder(XAI_API_DATA_POLICY_URL) ? (
-            XAI_API_DATA_POLICY_URL
-          ) : (
-            <a
-              href={XAI_API_DATA_POLICY_URL}
-              className="underline-offset-4 hover:underline"
-              rel="noreferrer"
-            >
-              {XAI_API_DATA_POLICY_URL}
-            </a>
-          )}
-          . Precog caps model calls per account per day ({MODEL_CALLS_FREE_PER_DAY} on the free plan
-          and {MODEL_CALLS_PAID_PER_DAY} on the Firm plan, unless this deployment sets other
-          limits).
+          Precog does not send your information for model training. Your business chooses the model
+          server and its data policy. Precog caps model calls per account per day (
+          {MODEL_CALLS_FREE_PER_DAY} on the free plan and {MODEL_CALLS_PAID_PER_DAY} on the Firm
+          plan, unless this deployment sets other limits).
         </p>
       </section>
 

@@ -50,9 +50,9 @@ describe("suggestLocally", () => {
 });
 
 describe("padWithRules", () => {
-  const grok: SuggestionResult = {
-    source: "grok",
-    model: "grok-4.5",
+  const model: SuggestionResult = {
+    source: "model",
+    model: "test-model",
     risks: [
       {
         title: "Refunds issued without a receipt",
@@ -71,26 +71,26 @@ describe("padWithRules", () => {
     ],
     ideas: [],
     controlIds: [],
-    rationale: "Grok reviewed the process description.",
+    rationale: "Voyager reviewed the process description.",
   };
 
-  it("marks the rule risks it adds and keeps Grok's choice of no controls", () => {
+  it("marks the rule risks it adds and keeps Voyager's choice of no controls", () => {
     const local = suggestLocally({
       ...input("Cash deposits"),
       availableControls: [{ id: "c-cash", name: "Daily cash count" }],
     });
     expect(local.controlIds).toEqual(["c-cash"]);
 
-    const padded = padWithRules(grok, local);
-    expect(padded.source).toBe("grok");
+    const padded = padWithRules(model, local);
+    expect(padded.source).toBe("model");
     expect(padded.controlIds).toEqual([]);
     expect(padded.risks).toHaveLength(4);
-    expect(padded.risks.slice(0, 2)).toEqual(grok.risks);
+    expect(padded.risks.slice(0, 2)).toEqual(model.risks);
     expect(padded.risks.slice(2).every((r) => r.ruleBased)).toBe(true);
-    // A rule risk Grok already named is not added twice.
+    // A rule risk Voyager already named is not added twice.
     expect(
       padded.risks.filter((r) => r.title === "Cash skimmed before it is recorded"),
     ).toHaveLength(1);
-    expect(grok.risks).toHaveLength(2);
+    expect(model.risks).toHaveLength(2);
   });
 });

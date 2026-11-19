@@ -350,15 +350,12 @@ export function digestSwitchLabel(weeklyDigest: boolean): string {
 }
 
 /** Why the weekly digest cannot reach the account's address (getNotificationSettings). */
-export type DigestAddressProblem = "x_only" | "unconfirmed" | null;
+export type DigestAddressProblem = "unconfirmed" | null;
 
 /** The note under the digest switch when the digest is on but cannot reach the account. */
 export function digestAddressNote(problem: DigestAddressProblem): string | null {
-  if (problem === "x_only") {
-    return "Precog cannot email the address linked to your X sign-in. Sign in with Google or email and password to get the weekly digest.";
-  }
   if (problem === "unconfirmed") {
-    return "Precog cannot confirm this email address. Sign in with Google using an address Google has confirmed, or with email and password, to get the weekly digest.";
+    return "Precog cannot confirm this email address. Confirm it from the link Precog sent to get the weekly digest.";
   }
   return null;
 }

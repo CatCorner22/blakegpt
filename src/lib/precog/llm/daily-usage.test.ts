@@ -180,7 +180,7 @@ describe("withinDailyBudget", () => {
     expect(await withinDailyBudget(async () => sql, "a", undefined, purge)).toBe(true);
     const rows = await sql<{ scope: string }>`select scope from llm_daily_usage order by scope`;
     // "a" is on the free plan, so it draws on the free pool, and has no
-    // verified email or social sign-in, so on the unverified pool too.
+    // confirmed email, so it also draws on the unverified pool.
     expect(rows.map((r) => r.scope)).toEqual(["global", "pool:free", "pool:unverified", "user:a"]);
   });
 
@@ -204,14 +204,13 @@ describe("shares of the global budget", () => {
 
   beforeEach(async () => {
     await db.clear('"user"');
-    for (const id of ["free-1", "free-2", "free-3", "google-1", "verified-1"]) {
+    for (const id of ["free-1", "free-2", "free-3", "confirmed-1", "verified-1"]) {
       await db.seedUser(id);
     }
-    await pg.exec(`update "user" set "emailVerified" = (id = 'verified-1')`);
+    await pg.exec(`update "user" set "emailVerified" = (id in ('verified-1', 'confirmed-1'))`);
     await pg.exec(`
       insert into "account" ("id", "accountId", "providerId", "userId", "updatedAt")
-      values ('acc-g', 'g-1', 'google', 'google-1', now()),
-        ('acc-c', 'free-1', 'credential', 'free-1', now())
+      values ('acc-c', 'free-1', 'credential', 'free-1', now())
     `);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
@@ -224,15 +223,15 @@ describe("shares of the global budget", () => {
       }
     }
     expect(admitted).toBe(4);
-    // Accounts made with Google or a verified email still have their own share.
-    expect(await withinDailyBudget(async () => sql, "google-1", limits, noPurge)).toBe(true);
+    // Verified addresses have their own share.
+    expect(await withinDailyBudget(async () => sql, "confirmed-1", limits, noPurge)).toBe(true);
     expect(await withinDailyBudget(async () => sql, "verified-1", limits, noPurge)).toBe(true);
   });
 
   it("caps one address across accounts, and a refusal spends nothing", async () => {
     const calls = (user: string, address: string) =>
       withinDailyBudget(async () => sql, user, { ...limits, unverified: 100 }, noPurge, address);
-    for (let i = 0; i < 5; i += 1) expect(await calls("google-1", "198.51.100.7")).toBe(true);
+    for (let i = 0; i < 5; i += 1) expect(await calls("confirmed-1", "198.51.100.7")).toBe(true);
     expect(await calls("verified-1", "198.51.100.7")).toBe(true);
     expect(await calls("verified-1", "198.51.100.7")).toBe(false);
     expect(await calls("verified-1", "198.51.100.8")).toBe(true);
@@ -250,7 +249,7 @@ describe("shares of the global budget", () => {
     const calls = (user: string, plan: "free" | "paid") =>
       checkDailyBudget(async () => sql, user, shared, noPurge, null, plan);
     let admitted = 0;
-    for (const user of ["google-1", "verified-1", "free-1"]) {
+    for (const user of ["confirmed-1", "verified-1", "free-1"]) {
       for (let i = 0; i < 3; i += 1) {
         if ((await calls(user, "free")) === "allowed") admitted += 1;
       }
@@ -270,7 +269,7 @@ describe("shares of the global budget", () => {
   it("gives a paid account the paid allowance, and stops it there", async () => {
     const shared = { ...limits, perUser: 1, perUserPaid: 3, unverified: 100 };
     const calls = (plan: "free" | "paid") =>
-      checkDailyBudget(async () => sql, "google-1", shared, noPurge, null, plan);
+      checkDailyBudget(async () => sql, "confirmed-1", shared, noPurge, null, plan);
     expect(await calls("paid")).toBe("allowed");
     expect(await calls("paid")).toBe("allowed");
     expect(await calls("paid")).toBe("allowed");
@@ -283,8 +282,8 @@ describe("shares of the global budget", () => {
     const shared = { ...limits, perUser: 5, perUserPaid: 5, perAddress: 2, unverified: 1 };
     const calls = (user: string, address: string | null) =>
       checkDailyBudget(async () => sql, user, shared, noPurge, address, "paid");
-    expect(await calls("google-1", "198.51.100.7")).toBe("allowed");
-    expect(await calls("google-1", "198.51.100.7")).toBe("allowed");
+    expect(await calls("confirmed-1", "198.51.100.7")).toBe("allowed");
+    expect(await calls("confirmed-1", "198.51.100.7")).toBe("allowed");
     // The office address is full; verified-1 itself has made no call today.
     expect(await calls("verified-1", "198.51.100.7")).toBe("spent-pool");
     expect(await calls("verified-1", null)).toBe("allowed");
@@ -302,9 +301,9 @@ describe("shares of the global budget", () => {
     const shared = { ...limits, perUser: 5, perUserPaid: 5, global: 2, unverified: 100 };
     const calls = (user: string) =>
       checkDailyBudget(async () => sql, user, shared, noPurge, null, "paid");
-    expect(await calls("google-1")).toBe("allowed");
+    expect(await calls("confirmed-1")).toBe("allowed");
     expect(await calls("verified-1")).toBe("allowed");
-    expect(await calls("google-1")).toBe("spent-global");
+    expect(await calls("confirmed-1")).toBe("spent-global");
     expect(await calls("free-1")).toBe("spent-global");
   });
 });

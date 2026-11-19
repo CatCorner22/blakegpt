@@ -347,7 +347,7 @@ function FirmPage() {
     (Boolean(search.billing || search.quickbooks) || (signedIn && loaded && !firm));
 
   return (
-    <main className="mx-auto min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-3xl px-6 py-8">
+    <main className="mx-auto min-h-dvh max-w-3xl px-6 py-8">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Firm workspace</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{firm?.name || "Firm"}</h1>
       <p className="mt-2 text-sm text-muted">

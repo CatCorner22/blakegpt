@@ -85,11 +85,10 @@ describe("requireFreshSession", () => {
     ).rejects.toMatchObject({ status: 401 });
   });
 
-  it("presents the live preview's bearer token to the session lookup", async () => {
+  it("uses the request cookie for the session lookup", async () => {
     const { requireFreshSession, getSession } = await load({ session: session(minutesAgo(1)) });
-    await requireFreshSession({ userId: "u1", message: MESSAGE, bearerToken: "tok", now: NOW });
+    await requireFreshSession({ userId: "u1", message: MESSAGE, now: NOW });
     const headers = getSession.mock.calls[0]?.[0].headers;
-    expect(headers?.get("authorization")).toBe("Bearer tok");
     expect(headers?.get("cookie")).toBe("a=b");
   });
 

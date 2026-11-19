@@ -1,7 +1,5 @@
 /**
- * Local email/password sign-in (this app's Better Auth DB — not the broker).
- *
- * On, so a firm that does not standardize on Google or X can still sign in.
+ * Precog email/password sign-in.
  * The forms live on /login (`authClient.signUp.email` / `signIn.email`).
  * Address confirmation and password reset by email: `./email-password.server`.
  *

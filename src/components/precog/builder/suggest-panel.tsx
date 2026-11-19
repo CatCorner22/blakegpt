@@ -4,7 +4,7 @@ import { AlertTriangle, Lightbulb, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { labelCls } from "@/components/ui/field-classes";
-import { ruleBasedReason, UNCHECKED_MODEL_NOTE } from "@/components/precog/builder/grok-status";
+import { ruleBasedReason, UNCHECKED_MODEL_NOTE } from "@/components/precog/builder/model-status";
 import type { SuggestionResult } from "@/lib/precog/builder/suggest";
 import { suggestForProcess } from "@/lib/precog/builder/suggest-server";
 import { industryMeta } from "@/lib/precog/industry";
@@ -14,7 +14,7 @@ import { uid } from "@/lib/precog/text";
 import type { ProcessNode } from "@/lib/precog/types";
 import { cn } from "@/lib/utils";
 
-/** Starter risks, ideas and controls for one process, from Grok or the built-in rules. */
+/** Starter risks, ideas and controls for one process, from Voyager or the built-in rules. */
 export function SuggestPanel({
   process,
   onChange,
@@ -82,19 +82,19 @@ export function SuggestPanel({
       {result && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-subtle">
-            <Badge variant={result.source === "grok" ? "accent" : "default"}>
-              {result.source === "grok"
-                ? ["Grok", result.model].filter(Boolean).join(" · ")
+            <Badge variant={result.source === "model" ? "accent" : "default"}>
+              {result.source === "model"
+                ? ["Voyager", result.model].filter(Boolean).join(" · ")
                 : "Rule-based"}
             </Badge>
             <span>{result.rationale}</span>
           </div>
-          {result.source === "grok" && (
+          {result.source === "model" && (
             <p className="text-xs text-subtle">{UNCHECKED_MODEL_NOTE}</p>
           )}
-          {ruleBasedReason(result.source, result.grokStatus, result.dailyLimit) && (
+          {ruleBasedReason(result.source, result.modelStatus, result.dailyLimit) && (
             <p className="text-xs text-subtle">
-              {ruleBasedReason(result.source, result.grokStatus, result.dailyLimit)}
+              {ruleBasedReason(result.source, result.modelStatus, result.dailyLimit)}
             </p>
           )}
           {result.risks.length > 0 && (
@@ -103,7 +103,7 @@ export function SuggestPanel({
                 const added = existingRisk.has(r.title.toLowerCase());
                 return (
                   <li
-                    // Grok can repeat a title; the list is fixed once received.
+                    // Voyager can repeat a title; the list is fixed once received.
                     key={`${index}-${r.title}`}
                     className="flex items-start gap-2 rounded-md border border-border bg-elevated px-2 py-1.5 text-xs"
                   >
@@ -111,8 +111,8 @@ export function SuggestPanel({
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-fg">
                         {r.title}
-                        {/* A built-in rule's risk added to Grok's list, not Grok's own. */}
-                        {ruleBased && result.source === "grok" && (
+                        {/* A built-in rule's risk added to Voyager's list, not Voyager's own. */}
+                        {ruleBased && result.source === "model" && (
                           <Badge className="ml-1.5 align-middle">Rule-based</Badge>
                         )}
                       </p>

@@ -1,5 +1,5 @@
 import type { Sql } from "@/lib/db";
-import type { GrokUsageLine } from "./grok-client.server";
+import type { ModelUsageLine } from "./model-client.server";
 
 /**
  * Model-call records (migration 0049): one row per call with the account, the
@@ -11,7 +11,7 @@ import type { GrokUsageLine } from "./grok-client.server";
 export const LLM_USAGE_RETENTION_MONTHS = 13;
 
 export type UsageRow = Pick<
-  GrokUsageLine,
+  ModelUsageLine,
   "feature" | "model" | "promptTokens" | "completionTokens" | "outcome"
 > & { userId: string | null };
 

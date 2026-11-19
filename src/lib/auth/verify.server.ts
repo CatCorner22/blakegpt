@@ -45,24 +45,17 @@ type VerifiedUser = { id: string; email: string | null };
  * Resolve the signed-in user from the current request, or `null` when auth isn't
  * configured / nobody is signed in. Safe to call from server functions and SSR
  * loaders.
- *
- * `bearerToken` is for the LIVE PREVIEW: the app runs in a partitioned iframe
- * whose cookies don't reach the server, so `authMiddleware` forwards the session
- * as a bearer token, which we present as `Authorization: Bearer …` (the `bearer`
- * plugin resolves it). When deployed no token is passed and the cookie is used.
  */
-export async function getSessionUser(bearerToken?: string): Promise<VerifiedUser | null> {
+export async function getSessionUser(): Promise<VerifiedUser | null> {
   if (!authConfigured) return null;
   const request = getRequest();
   if (!request) return null;
-  let headers = request.headers;
-  if (bearerToken) {
-    headers = new Headers(request.headers);
-    headers.set("Authorization", `Bearer ${bearerToken}`);
-  }
   // Server operations recheck the stored session. A revoked cookie must not
   // keep authorizing writes during the display cookie cache's lifetime.
-  const session = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
+  const session = await auth.api.getSession({
+    headers: request.headers,
+    query: { disableCookieCache: true },
+  });
   if (!session?.user) return null;
   return { id: session.user.id, email: session.user.email ?? null };
 }
@@ -71,14 +64,13 @@ export async function getSessionUser(bearerToken?: string): Promise<VerifiedUser
  * Resolve the current user id for a server function, or throw when unauthorized.
  * Prefer `authMiddleware` (`./middleware`), which calls this for you.
  * - Auth enabled (default) -> the verified session user id; throws
- *   `UnauthorizedError` when signed out. Works in the sandbox preview too (real
- *   sign-in via the baked preview client).
+ *   `UnauthorizedError` when signed out.
  * - Auth disabled (`VITE_AUTH_ENABLED=false`) + `DATABASE_URL` set -> throw (fail
  *   closed): one shared dev user on a real database would let every visitor
  *   read/write everyone's rows.
  * - Auth disabled + no database -> the shared dev user id.
  */
-export async function requireUserId(bearerToken?: string): Promise<string> {
+export async function requireUserId(): Promise<string> {
   if (!authConfigured) {
     if (databaseConfigured) {
       throw new Error(
@@ -88,7 +80,7 @@ export async function requireUserId(bearerToken?: string): Promise<string> {
     }
     return DEV_USER_ID;
   }
-  const user = await getSessionUser(bearerToken);
+  const user = await getSessionUser();
   if (!user) throw new UnauthorizedError();
   return user.id;
 }

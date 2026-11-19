@@ -116,7 +116,6 @@ describe("account deletion", () => {
     );
     expect(spies.fresh).toHaveBeenCalledWith({
       userId: "u1",
-      bearerToken: "tok",
       message: account.SIGN_IN_AGAIN_TO_DELETE,
     });
     expect(calls).toEqual(["fresh-session"]);

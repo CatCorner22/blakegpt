@@ -66,12 +66,6 @@ export function liftedToast(email: string): string {
 export const OPERATOR_COUNTS = [
   { name: "running-subscriptions", label: "Running subscriptions and their live clients" },
   { name: "hand-marked", label: "Firms marked monthly by hand with no billing row" },
-  { name: "x-only-digest", label: "X-only accounts with the digest on" },
-  {
-    name: "google-unconfirmed-digest",
-    label: "Google accounts without a confirmed address and the digest on",
-  },
-  { name: "google-digest", label: "Google accounts with the digest on" },
   { name: "past-due", label: "Firm plans past due" },
   {
     name: "quickbooks-attention",
@@ -134,7 +128,7 @@ export interface OperatorAccount {
   name: string;
   email: string;
   emailVerified: boolean;
-  /** "credential", "grok-google", "grok-x". */
+  /** "credential" when the account has an email-and-password sign-in. */
   providers: string[];
   createdAt: string;
   firm: { firmUserId: string; name: string; role: string } | null;
@@ -151,8 +145,6 @@ export interface OperatorAccount {
 
 const PROVIDER_LABELS: Record<string, string> = {
   credential: "email and password",
-  "grok-google": "Google",
-  "grok-x": "X",
 };
 
 const MILESTONE_LABELS: Record<string, string> = {

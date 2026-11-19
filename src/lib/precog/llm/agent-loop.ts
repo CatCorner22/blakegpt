@@ -2,11 +2,11 @@
  * How the coach builds a brief. The rules path (runLocalAgentLoop) runs eight
  * steps: plan the tools, gather their results, pick out the figures to cite,
  * order the fixes, list what the app cannot see, apply the four review lenses,
- * look for warnings, and write the brief. The model path (runGrokAgentLoop)
- * lets Grok select complete rules-authored statements to highlight. The
+ * look for warnings, and write the brief. The model path (runModelAgentLoop)
+ * lets Voyager select complete rules-authored statements to highlight. The
  * model never supplies user-visible claims; the original brief is retained.
  */
-import { modelApiKey } from "./model-endpoint";
+import { modelEndpoint } from "./model-endpoint";
 import { executeTools, planTools, type ToolContext } from "./tools";
 import { runSpecialistAgents } from "./multi-agent";
 import { callModel, type LlmAccess } from "./guard.server";
@@ -155,11 +155,11 @@ export function runLocalAgentLoop(question: string, ctx: ToolContext = {}): Loca
  * An invalid selection returns the unchanged rules brief with a rejected
  * status. No unsupported output is displayed, including in warning text.
  */
-export async function runGrokAgentLoop<T extends LocalAgentRun>(
+export async function runModelAgentLoop<T extends LocalAgentRun>(
   local: T,
   access: LlmAccess,
 ): Promise<T & ModelOutcome> {
-  if (access.grok !== "allowed" || !modelApiKey()) {
+  if (access.model !== "allowed" || !modelEndpoint()) {
     return { ...local, modelStatus: "not-asked" };
   }
   if (local.toolResults.length === 0) return { ...local, modelStatus: "not-asked" };
@@ -173,11 +173,11 @@ export async function runGrokAgentLoop<T extends LocalAgentRun>(
     latencyMs: local.latencyMs + Date.now() - started,
   });
   try {
-    // callModel takes one unit of the owner's daily budget, then calls Grok;
+    // callModel takes one unit of the owner's daily budget, then calls Voyager;
     // it throws DailyLimitReached when the budget is spent, and null means
     // the budget could not be read or the model gave nothing back.
     const response = await callModel(access, {
-      messages: buildGrokAgentMessages(local, claims),
+      messages: buildModelAgentMessages(local, claims),
       maxTokens: 256,
       temperature: 0.3,
       jsonObject: true,
@@ -209,7 +209,7 @@ export async function runGrokAgentLoop<T extends LocalAgentRun>(
       ...local,
       modelStatus: "answered",
       highlightIds: selected,
-      source: "grok-agent",
+      source: "model-agent",
       model: response.model,
       steps: [
         ...local.steps,
@@ -248,7 +248,7 @@ function toolSummaryLines(toolResults: ToolResult[]): string[] {
   return [...bySummary].map(([summary, tools]) => `${tools.join(", ")}: ${summary}`);
 }
 
-function buildGrokAgentMessages(
+function buildModelAgentMessages(
   local: LocalAgentRun,
   claims: readonly BriefClaim[],
 ): { role: "system" | "user"; content: string }[] {

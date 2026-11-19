@@ -84,8 +84,6 @@ beforeEach(async () => {
     insert into firm_members (firm_user_id, member_user_id, role) values
       ('fo', 'fo', 'owner'), ('fo', 'fm', 'preparer'),
       ('fo2', 'fo2', 'owner'), ('xo', 'xo', 'owner');
-    insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
-      values ('a_x', 'x1', 'grok-x', 'xo', now(), now());
     insert into businesses (id, user_id, name, industry, profile, revision) values
       ('biz_1', 'bo', 'Ortiz Dental', 'general', '{}'::jsonb, 1);
   `);
@@ -127,7 +125,7 @@ describe("the client invitation texts", () => {
       "This business already works with a firm. End that firm's access first.",
       "Precog sends at most five firm invitations a day for one business.",
       "Only a firm's owner can accept a client invitation. Set up your firm on the Firm page first, then open this link again.",
-      "Sign in with Google or with the email address the invitation was sent to.",
+      "Sign in with the email address the invitation was sent to.",
       "This invitation has expired or was already used. Ask the business owner for a new one.",
       "This invitation is for your own business, so there is nothing to accept. Send the link to the firm owner it names.",
       "Only the business's owner or the owner of the firm working on it can end the firm's access.",
@@ -257,6 +255,7 @@ describe("accepting a client invitation", () => {
   });
 
   it("refuses another firm owner, and an address Precog cannot vouch for", async () => {
+    await db.pg.query(`update "user" set "emailVerified" = false where id = 'xo'`);
     const grant = await invite("fo@example.test");
     expect(await refusal(acceptGrant(db.sql, grant.token, "fo2"))).toEqual({
       status: 409,

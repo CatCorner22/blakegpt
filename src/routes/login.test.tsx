@@ -13,10 +13,8 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
 vi.mock("@/lib/auth/client", () => ({
-  GROK_PROVIDERS: [],
   authClient: {},
   authEnabled: false,
-  signIn: vi.fn(),
   signInErrorMessage: (code: string) => code,
 }));
 vi.mock("@/lib/auth/email-password", () => ({

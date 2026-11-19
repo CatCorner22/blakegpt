@@ -90,7 +90,7 @@ async function seed(user, businessId, name) {
     [user, name, JSON.stringify({ businessId, ownerUserId: user, pointerVersion: 2 })],
   );
   return {
-    name: "__Host-grok-auth.session_token",
+    name: "__Host-precog-auth.session_token",
     value: encodeURIComponent(`${token}.${signature}`),
     // Playwright derives Secure from the URL, overriding an explicit flag.
     // Seed this host-only cookie with HTTPS so the __Host- prefix stays valid;

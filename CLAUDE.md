@@ -8,9 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 a branch that holds the newest `main`; agents never merge; migrations only add;
 a moved figure updates its test pins in the same commit; and the product wording
 rules (write "Precog", never "the app"; "for example", never "e.g."; no
-"should"). The Precog section at the top of `AGENTS.md` points there; the rest
-of `AGENTS.md` is the Grok sandbox guidance for the live preview and still
-applies to it. Nothing in this file overrides either one.
+"should"). `AGENTS.md` points there. Nothing in this file overrides those
+rules.
 
 Two project skills hold the long form: `.claude/skills/precog-verify` (run and
 check Precog in a fresh container, with the locked-report parity harness) and
@@ -104,8 +103,7 @@ done | xargs -r kill
 
 - **TanStack Start.** File routes in `src/routes/` (`routeTree.gen.ts` is
   generated and prettier-ignored), `getRouter` in `src/router.tsx`, the
-  document shell in `src/routes/__root.tsx` (keep `CreatedWithGrokBanner`
-  mounted). Server code is `export const x = createServerFn(...)`;
+  document shell in `src/routes/__root.tsx`. Server code is `export const x = createServerFn(...)`;
   `authMiddleware` (`src/lib/auth/middleware`) hands the handler a verified
   `userId`. A server function's id derives from its file path and export
   name and is pinned in `scripts/server-fn-ids.json`, because an open tab keeps
