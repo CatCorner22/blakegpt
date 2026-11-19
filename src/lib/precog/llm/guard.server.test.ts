@@ -78,6 +78,23 @@ afterEach(() => {
 });
 
 describe("resolveLlmAccess", () => {
+  it("keeps deterministic checks outside the model allowance", async () => {
+    const { LLM_LIMITS } = await import("./rate-limit");
+    const { resolveLlmAccess } = await guard();
+    for (let i = 0; i <= LLM_LIMITS.perIp.limit; i++) {
+      await resolveLlmAccess(undefined, { deterministic: true });
+    }
+    for (let i = 0; i < LLM_LIMITS.anonymousHeavyPerIp.limit; i++) {
+      await resolveLlmAccess(undefined, { heavy: true });
+    }
+    await expect(resolveLlmAccess(undefined, { heavy: true })).rejects.toMatchObject({
+      status: 429,
+    });
+    await expect(resolveLlmAccess(undefined, { deterministic: true })).resolves.toMatchObject({
+      userId: null,
+    });
+  });
+
   it("checks the request is same-site before anything else", async () => {
     const { resolveLlmAccess } = await guard();
     seams.sameSite.mockImplementation(() => {
@@ -332,6 +349,17 @@ describe("callModel", () => {
       completionTokens: 7,
       outcome: "ok",
     });
+  });
+
+  it("records every attempt when a rejected format is retried", async () => {
+    const { callModel } = await guard();
+    seams.grokChat.mockImplementation(async (_key, opts) => {
+      opts.onUsage({ ...LINE, promptTokens: null, completionTokens: null, outcome: "http_400" });
+      opts.onUsage(LINE);
+      return { text: "brief", model: "m1" };
+    });
+    await callModel({ userId: "u1", grok: "allowed" }, CHAT);
+    expect(seams.insertUsage.mock.calls.map((call) => call[1].outcome)).toEqual(["http_400", "ok"]);
   });
 
   it("records the local development account with no account, which has no user row", async () => {

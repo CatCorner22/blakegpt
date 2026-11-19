@@ -134,7 +134,9 @@ function authPopupPlugin(): Plugin {
 }
 
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
-// Keep `nitro` gated to `build` (the Vercel deploy target): enabled in dev it
+const nodeServer = process.env.PRECOG_BUILD_TARGET === "node-server";
+
+// Keep `nitro` gated to `build`: enabled in dev it
 // opens a second dev-server port, which breaks the single-port preview.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
@@ -184,7 +186,7 @@ export default defineConfig(({ command }) => ({
     ...(command === "build"
       ? [
           nitro({
-            preset: "vercel",
+            preset: nodeServer ? "node-server" : "vercel",
             // Response headers for every route. frame-ancestors keeps the app and
             // the public share page out of third-party frames (clickjacking);
             // the referrer policy keeps a share token out of Referer headers
@@ -205,13 +207,17 @@ export default defineConfig(({ command }) => ({
             // QuickBooks re-reads in one invocation. 300 s needs the Vercel Pro
             // plan (docs/OPERATIONS.md, Function limits). scripts/
             // check-build-functions.mjs checks the built output carries them.
-            vercel: {
-              functions: {
-                maxDuration: 60,
-                ...(FUNCTION_REGIONS ? { regions: FUNCTION_REGIONS } : {}),
-              },
-              functionRules: { "/api/cron/digest": { maxDuration: 300 } },
-            },
+            ...(nodeServer
+              ? {}
+              : {
+                  vercel: {
+                    functions: {
+                      maxDuration: 60,
+                      ...(FUNCTION_REGIONS ? { regions: FUNCTION_REGIONS } : {}),
+                    },
+                    functionRules: { "/api/cron/digest": { maxDuration: 300 } },
+                  },
+                }),
           }),
         ]
       : []),

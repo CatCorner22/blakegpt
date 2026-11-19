@@ -1,0 +1,13 @@
+[Unit]
+Description=Precog weekly digest
+After=precog.service
+Requires=precog.service
+
+[Service]
+Type=oneshot
+User=precog
+Group=precog
+Environment=PORT=8080
+EnvironmentFile=/etc/precog/precog.env
+ExecStart=/bin/bash /opt/precog/deploy/self-host/digest.sh
+NoNewPrivileges=true

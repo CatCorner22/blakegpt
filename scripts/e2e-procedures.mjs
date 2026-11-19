@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Headless end-to-end check of Procedures via All sections, as a guest on the dental
+ * Headless end-to-end check of Procedures through responsive navigation, as a guest on the dental
  * sample: add a place, start a procedure from a register item nothing is
  * written for, write two steps (one that looks like a password, which must
  * warn), draft two more from notes, save, verify, follow it step by step and
@@ -9,8 +9,8 @@
  * suggestions until someone edits them.
  *
  * Usage: node scripts/e2e-procedures.mjs [baseUrl]   (default http://127.0.0.1:8080/)
- * Env:   E2E_TIMEOUT_MS (default 45000), E2E_SCREENSHOT (PNG path on failure),
- *        E2E_SHOTS (a directory to save desktop and phone screenshots in)
+ * Env:   E2E_TIMEOUT_MS (default 45000), E2E_VIEWPORT_WIDTH (default 1440),
+ *        E2E_SCREENSHOT (PNG path on failure), E2E_SHOTS (a directory to save screenshots in)
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -27,12 +27,23 @@ const passed = await withPage(options, writeVerifyAndLink);
 if (passed) console.log(JSON.stringify({ ok: true, steps: step.names.length }));
 
 async function writeVerifyAndLink(page, errors) {
-  step("open the dental sample and choose Procedures from All sections");
+  await page.setViewportSize({
+    width: Number(process.env.E2E_VIEWPORT_WIDTH || 1440),
+    height: 900,
+  });
+  step("open the dental sample and choose Procedures from the section navigation");
   await openSetup(page, base, options.timeout);
   await exploreSample(page, "Dental");
-  // Procedures sits under All sections, not in the tab strip.
-  await page.locator("[data-sections-menu]").click();
-  await page.locator('[role="menu"] [role="menuitem"][data-tab-id="procedures"]').click();
+  const procedures = page.locator("nav #tab-procedures");
+  if (await procedures.isVisible()) await procedures.click();
+  else {
+    await page.locator("[data-sections-menu]").click();
+    await page
+      .locator(
+        '[role="menu"][aria-label="All sections"] [role="menuitem"][data-tab-id="procedures"]',
+      )
+      .click();
+  }
   await page.getByRole("heading", { name: "Procedures", level: 1 }).waitFor();
 
   step("add a place from the suggestions");

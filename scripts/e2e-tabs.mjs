@@ -9,14 +9,15 @@
  * is the check that catches a hydration mismatch and any tab that throws on a
  * template it was not written for.
  * Once, signed out, it also checks the header (Needs attention), the
- * phone strip ("All sections" names every main section), the
+ * desktop rail, the phone strip and All sections directory, the
  * Monthly review tab, old tab ids in the address (?tab=journal, ?tab=layers,
  * ?tab=command, ?tab=value), the retired /threat page, the All sections menu's
  * links to the firm workspace, the tab count, and the home footer's Privacy
  * link.
  *
  * Usage: node scripts/e2e-tabs.mjs [baseUrl]   (default http://127.0.0.1:8080/)
- * Env:   E2E_TIMEOUT_MS (default 45000), E2E_SCREENSHOT (PNG path on failure)
+ * Env:   E2E_TIMEOUT_MS (default 45000), E2E_VIEWPORT_WIDTH (default 1440),
+ *        E2E_SCREENSHOT (PNG path on failure)
  */
 import { e2eOptions, exploreSample, openSetup, withPage } from "./lib/e2e.mjs";
 import { checkStartHereNavigation } from "./lib/start-here-navigation.mjs";
@@ -43,6 +44,10 @@ function record(where, problems) {
 }
 
 await withPage(options, async (page, errors) => {
+  await page.setViewportSize({
+    width: Number(process.env.E2E_VIEWPORT_WIDTH || 1440),
+    height: 900,
+  });
   async function drain(where) {
     await page.waitForTimeout(400);
     const boundary = await page.getByText(/This view hit an error|failed to download/).count();
@@ -71,42 +76,70 @@ await withPage(options, async (page, errors) => {
         .waitFor({ state: "detached", timeout: 15000 })
         .catch(() => {});
 
-    // The primary tabs sit in the strip; Ask Voyager is a header button; the
-    // rest are behind "All sections".
-    const primary = await page.locator('nav [role="tab"]').allInnerTexts();
+    const sectionTabs = page.locator('nav [role="tab"]:visible');
+    const visibleSectionIds = await sectionTabs.evaluateAll((tabs) =>
+      tabs.map((tab) => tab.id.replace(/^tab-/, "")),
+    );
+    const primary = await sectionTabs.allInnerTexts();
     let lastLabel = "";
     for (let i = 0; i < primary.length; i++) {
       const label = primary[i].trim().split("\n")[0];
-      await page.locator('nav [role="tab"]').nth(i).click();
+      await sectionTabs.nth(i).click();
       await settle();
       await drain(`${industry}: tab "${label}"`);
       lastLabel = label;
     }
-    await page.locator("[data-sections-menu]").click();
-    // The menu is placed under its button after it opens; read it once it shows.
-    await page.locator('[role="menu"] [role="menuitem"]').first().waitFor();
-    // Every section appears once; links to other pages are checked below.
-    const advanced = await page
-      .locator('[role="menu"] [role="menuitem"]:not([data-route-link])')
-      .allInnerTexts();
-    await page.keyboard.press("Escape");
-    for (const text of advanced) {
-      const label = text.trim().split("\n")[0];
-      await page.locator("[data-sections-menu]").click();
-      await page
-        .locator('[role="menu"] [role="menuitem"]:not([data-route-link])', { hasText: label })
-        .first()
-        .click();
-      await settle();
-      await drain(`${industry}: tab "${label}"`);
-      lastLabel = label;
+    const directory = page.locator("[data-sections-menu]");
+    let directoryOnly = [];
+    if (await directory.isVisible()) {
+      await directory.click();
+      const menuTabs = page.locator(
+        '[role="menu"][aria-label="All sections"] [role="menuitem"][data-tab-id]',
+      );
+      await menuTabs.first().waitFor({ state: "visible" });
+      const listedIds = await menuTabs.evaluateAll((items) =>
+        items.map((item) => item.getAttribute("data-tab-id")),
+      );
+      if (new Set(listedIds).size !== listedIds.length) {
+        throw new Error(`${industry}: All sections lists a section more than once`);
+      }
+      if (listedIds.includes("pioneer")) {
+        throw new Error(`${industry}: Ask Voyager appears in both the header and All sections`);
+      }
+      const missingVisible = visibleSectionIds.filter((id) => !listedIds.includes(id));
+      if (missingVisible.length) {
+        throw new Error(`${industry}: All sections leaves out ${missingVisible.join(", ")}`);
+      }
+      directoryOnly = listedIds.filter((id) => !visibleSectionIds.includes(id));
+      await page.keyboard.press("Escape");
+      for (const id of directoryOnly) {
+        await directory.click();
+        await page
+          .locator(
+            `[role="menu"][aria-label="All sections"] [role="menuitem"][data-tab-id="${id}"]`,
+          )
+          .click();
+        await settle();
+        const selected = await page
+          .locator('nav [role="tab"][aria-selected="true"]')
+          .first()
+          .innerText();
+        lastLabel = selected.trim().split("\n")[0];
+        await drain(`${industry}: tab "${lastLabel}"`);
+      }
     }
     const expected = Number(
       await page.locator("nav[data-tab-count]").getAttribute("data-tab-count"),
     );
-    if (advanced.length !== expected || new Set(advanced).size !== expected) {
+    const headerTabs = await page.locator("[data-header-tab]").count();
+    const reachableSections = [...visibleSectionIds, ...directoryOnly];
+    const expectedSections = expected - headerTabs;
+    if (
+      reachableSections.length !== expectedSections ||
+      new Set(reachableSections).size !== expectedSections
+    ) {
       throw new Error(
-        `${industry}: expected ${expected} tabs, found ${primary.length} primary, ${advanced.length} in All sections`,
+        `${industry}: expected ${expectedSections} reachable sections, found ${reachableSections.length}`,
       );
     }
 
@@ -181,15 +214,47 @@ async function shellChecks(page) {
     await page.locator("nav[data-tab-count]").waitFor();
   };
 
-  // Ten destinations in All sections; five keep strip shortcuts.
+  // Nine sections stay in the rail or directory; Ask Voyager stays in the header.
   await home();
   const tabCount = await page.locator("nav[data-tab-count]").getAttribute("data-tab-count");
   if (tabCount !== "10") throw new Error(`expected 10 tabs, data-tab-count is ${tabCount}`);
+  const startWidth = await page.evaluate(() => window.innerWidth);
+  const startTabs = page.locator('nav [role="tab"]:visible');
+  const startSectionIds = await startTabs.evaluateAll((tabs) =>
+    tabs.map((tab) => tab.id.replace(/^tab-/, "")),
+  );
+  const headerTabCount = await page.locator("[data-header-tab]").count();
+  if (startWidth >= 1024) {
+    if (await page.locator("[data-sections-menu]:visible").count()) {
+      throw new Error("desktop shows an All sections menu alongside the section rail");
+    }
+    if (await page.locator("[data-more-tabs]").count()) {
+      throw new Error("desktop still renders a separate Analyze menu");
+    }
+    if (startSectionIds.length !== Number(tabCount) - headerTabCount) {
+      throw new Error(`desktop rail shows ${startSectionIds.length} sections`);
+    }
+    if (new Set(startSectionIds).size !== startSectionIds.length) {
+      throw new Error("desktop rail lists a section more than once");
+    }
+  } else {
+    if ((await page.locator("[data-sections-menu]:visible").count()) !== 1) {
+      throw new Error("phone or tablet does not show exactly one All sections directory");
+    }
+    if (await page.locator("[data-more-tabs]").count()) {
+      throw new Error("phone or tablet still renders a separate Analyze menu");
+    }
+  }
 
-  const selectedTab = async () =>
-    (await page.locator('nav [role="tab"][aria-selected="true"]').first().innerText())
+  const selectedTab = async () => {
+    const selected = page.locator('nav [role="tab"][aria-selected="true"]');
+    if (await selected.count()) {
+      return (await selected.first().innerText()).trim().split("\n")[0];
+    }
+    return (await page.locator("[data-header-tab=pioneer][aria-pressed=true]").innerText())
       .trim()
       .split("\n")[0];
+  };
 
   // The retired Dashboard opens Start here.
   await home("?tab=command");
@@ -232,9 +297,17 @@ async function shellChecks(page) {
   await page.getByRole("heading", { name: "History", exact: true }).waitFor({ timeout });
 
   await home();
-  await page.locator("[data-sections-menu]").click();
-  await page.locator('[role="menu"] [data-route-link="value"]').click();
-  await valueProofInView("All sections › Value proof");
+  const railValue = page.locator('nav [data-route-link="value"]');
+  if (await railValue.isVisible()) {
+    await railValue.click();
+    await valueProofInView("the section rail › Value proof");
+  } else {
+    await page.locator("[data-sections-menu]").click();
+    await page
+      .locator('[role="menu"][aria-label="All sections"] [data-route-link="value"]')
+      .click();
+    await valueProofInView("All sections › Value proof");
+  }
 
   await home();
 
@@ -248,7 +321,12 @@ async function shellChecks(page) {
   await page.getByRole("button", { name: "Print / Save as PDF" }).waitFor({ timeout });
   // The Monthly review tab opens on its heading, signed out.
   await home();
-  await page.locator('nav [role="tab"]', { hasText: "Monthly review" }).click();
+  const monthlyTab = page.locator('nav [role="tab"]', { hasText: "Monthly review" });
+  if (await monthlyTab.isVisible()) await monthlyTab.click();
+  else {
+    await page.locator("[data-sections-menu]").click();
+    await page.locator('[role="menu"][aria-label="All sections"] [data-tab-id="monthly"]').click();
+  }
   await page.getByRole("heading", { level: 1, name: "Monthly review" }).waitFor();
 
   // An old tab id lands on the tab and section it became.
@@ -351,6 +429,10 @@ async function shellChecks(page) {
   await home();
   await page.locator("[data-header-tab=pioneer]").click();
   await page.waitForURL(/[?&]tab=pioneer/, { timeout });
+  await page.locator("[data-header-tab=pioneer][aria-pressed=true]").waitFor({ timeout });
+  if (await page.locator("nav #tab-pioneer").count()) {
+    throw new Error("Ask Voyager appears both in the header and section navigation");
+  }
   if ((await selectedTab()) !== "Ask Voyager") {
     throw new Error(`the header's Ask Voyager opened "${await selectedTab()}"`);
   }
@@ -376,10 +458,19 @@ async function shellChecks(page) {
       .locator('[role="menu"][aria-label="Needs attention"]')
       .waitFor({ state: "detached" });
   }
-  await page.locator("[data-sections-menu]").click();
-  await page.locator('[role="menu"] [role="menuitem"]').first().waitFor();
-  const advanced = await page.locator('[role="menu"] [role="menuitem"]').allInnerTexts();
-  await page.keyboard.press("Escape");
+  const directory = page.locator("[data-sections-menu]");
+  let advanced;
+  if (await directory.isVisible()) {
+    await directory.click();
+    const items = page.locator(
+      '[role="menu"][aria-label="All sections"] [role="menuitem"][data-tab-id]',
+    );
+    await items.first().waitFor({ state: "visible" });
+    advanced = await items.allInnerTexts();
+    await page.keyboard.press("Escape");
+  } else {
+    advanced = await page.locator('nav [role="tab"]:visible').allInnerTexts();
+  }
   const leaked = advanced.filter((text) => attentionItems.includes(text));
   if (leaked.length) {
     throw new Error(`Needs attention items counted as All sections views: ${leaked.join(", ")}`);
@@ -428,18 +519,45 @@ async function shellChecks(page) {
   }
   const mainSections = await page
     .locator('nav [role="tab"]')
-    .evaluateAll((tabs) => tabs.map((t) => t.id.replace(/^tab-/, "")));
-  await page.locator("[data-sections-menu]").click();
+    .evaluateAll((tabs) =>
+      tabs.map((t) => t.id.replace(/^tab-/, "")).filter((id) => id !== "pioneer"),
+    );
+  const allSectionsButton = page.locator("[data-sections-menu]:visible");
+  if ((await allSectionsButton.count()) !== 1) {
+    throw new Error("phone does not show exactly one All sections directory");
+  }
+  if (await page.locator("[data-more-tabs]").count()) {
+    throw new Error("phone still renders a separate Analyze menu");
+  }
+  await allSectionsButton.click();
   // The menu renders after the click: wait for its items before reading them.
-  const sectionItems = page.locator('[role="menu"][aria-label="All sections"] [role="menuitem"]');
+  const sectionItems = page.locator(
+    '[role="menu"][aria-label="All sections"] [role="menuitem"][data-tab-id]',
+  );
   await sectionItems.first().waitFor({ state: "visible" });
   const listed = await sectionItems.evaluateAll((items) =>
-    items.map((i) => i.getAttribute("data-tab-id") ?? i.textContent),
+    items.map((i) => i.getAttribute("data-tab-id")),
   );
   const missing = mainSections.filter((id) => !listed.includes(id));
   if (missing.length) throw new Error(`All sections leaves out: ${missing.join(", ")}`);
+  if (listed.includes("pioneer")) {
+    throw new Error("Ask Voyager appears in both the header and All sections");
+  }
+  if (new Set(listed).size !== listed.length) {
+    throw new Error("All sections lists a section more than once");
+  }
+  if ((await page.locator("[data-header-tab=pioneer]").count()) !== 1) {
+    throw new Error("Ask Voyager is not available exactly once in the header");
+  }
   await page.keyboard.press("Escape");
-  console.log(`  ✓ phone "All sections" lists ${listed.length} places by name`);
+  await page.waitForFunction(
+    () =>
+      document.querySelector("[data-sections-menu]")?.getAttribute("aria-expanded") === "false" &&
+      document.activeElement === document.querySelector("[data-sections-menu]"),
+    null,
+    { timeout },
+  );
+  console.log(`  ✓ phone "All sections" lists ${listed.length} sections without duplicates`);
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await checkStartHereNavigation(page, baseUrl, timeout);

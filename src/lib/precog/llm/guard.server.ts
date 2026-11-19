@@ -1,3 +1,4 @@
+import { modelApiKey } from "./model-endpoint";
 import { assertSameSiteRequest } from "@/lib/auth/isolation.server";
 import { assertExpectedAccount } from "@/lib/auth/expected-account";
 import { DEV_USER_ID, authConfigured, getSessionUser } from "@/lib/auth/verify.server";
@@ -45,6 +46,8 @@ export interface LlmAccessOptions {
    * still run. This call does not take a per-minute model slot.
    */
   unmetered?: boolean;
+  /** Local checks only: preserve request and account checks without using a model slot. */
+  deterministic?: boolean;
 }
 
 /**
@@ -62,8 +65,10 @@ export async function resolveLlmAccess(
 ): Promise<LlmAccess> {
   assertSameSiteRequest();
   const ipKey = `ip:${requestIp()}`;
-  const ipResult = perIpLimiter.take(ipKey);
-  if (!ipResult.allowed) throw new TooManyRequestsError(ipResult.retryAfterMs, TRY_AGAIN);
+  if (!options.deterministic) {
+    const ipResult = perIpLimiter.take(ipKey);
+    if (!ipResult.allowed) throw new TooManyRequestsError(ipResult.retryAfterMs, TRY_AGAIN);
+  }
 
   let userId: string | null = null;
   if (!authConfigured && !databaseConfigured) {
@@ -74,6 +79,7 @@ export async function resolveLlmAccess(
     // a budget, under another.
     if (expectedAccountId !== undefined) assertExpectedAccount(expectedAccountId, userId ?? "");
   }
+  if (options.deterministic) return { userId, grok: "no_api_key" };
 
   if (!options.unmetered && options.heavy && !userId) {
     const anonymous = anonymousHeavyGate(ipKey);
@@ -89,7 +95,7 @@ export async function resolveLlmAccess(
     throw new TooManyRequestsError(userResult.retryAfterMs, TRY_AGAIN);
   }
 
-  if (!process.env.XAI_API_KEY?.trim()) return { userId, grok: "no_api_key" };
+  if (!modelApiKey()) return { userId, grok: "no_api_key" };
   if (!userId) return { userId, grok: "unauthenticated" };
   if (!options.unmetered && !userAllowed) return { userId, grok: "rate_limited" };
   if (!options.unmetered && !globalLimiter.take("global").allowed)
@@ -114,7 +120,7 @@ export async function callModel(
   access: LlmAccess,
   opts: GrokChatOptions,
 ): Promise<GrokChatResult | null> {
-  const apiKey = process.env.XAI_API_KEY?.trim();
+  const apiKey = modelApiKey();
   if (access.grok !== "allowed" || !access.userId || !apiKey) return null;
   const { budget, plan } = await spendCallerDailyUnit(access.userId);
   if (budget === "allowed") return recordedCall(access.userId, apiKey, opts);
@@ -145,16 +151,17 @@ async function recordedCall(
   apiKey: string,
   opts: GrokChatOptions,
 ): Promise<GrokChatResult | null> {
-  let usage: GrokUsageLine | null = null;
+  // One line per attempt: a platform that rejects the requested format is
+  // retried with a looser one, and each attempt is a call the API saw.
+  const lines: GrokUsageLine[] = [];
   const keep = (line: GrokUsageLine) => {
-    usage = line;
+    lines.push(line);
     opts.onUsage?.(line);
   };
   try {
     return await grokChat(apiKey, { ...opts, onUsage: keep });
   } finally {
-    const line = usage as GrokUsageLine | null;
-    if (line) {
+    for (const line of lines) {
       try {
         await insertUsage(await getSql(), {
           // The local development account has no "user" row for the foreign key.

@@ -218,9 +218,9 @@ describe("monthly review communicates evidence limits", () => {
     expect(html).toContain("control evidence log");
     expect(html.match(/data-review-independence="self_review"/g)).toHaveLength(4);
   });
-  it("is titled Monthly review, says which record a reviewer relies on, and links nowhere", () => {
+  it("is titled Checks to record, says which record a reviewer relies on, and links nowhere", () => {
     const html = view();
-    expect(html).toContain(">Monthly review</h2>");
+    expect(html).toContain(">Checks to record</h2>");
     expect(html).not.toContain("This month’s file");
     expect(html).toContain(
       "Reviewers rely on this log. Done marks on processes, Decisions log entries and procedure proofs stay on the business and are not part of it.",
@@ -230,6 +230,43 @@ describe("monthly review communicates evidence limits", () => {
 });
 
 describe("monthly review tells the owner where the result went", () => {
+  it("keeps drafts and reviewer choices separate between businesses", async () => {
+    state.people = [owner()];
+    state.businessId = "business-a";
+    const render = () => runtime.render(() => MonthlyReview());
+    whoField(render(), BANK).props.onChange({ target: { value: "Owner" } });
+    noteField(render(), BANK).props.onChange({ target: { value: "Private draft" } });
+    state.businessId = "business-b";
+    expect(noteField(render(), BANK).props.value).toBe("");
+    expect(whoField(render(), BANK).props.value).toBe("");
+    state.businessId = "business-a";
+    expect(noteField(render(), BANK).props.value).toBe("Private draft");
+    expect(whoField(render(), BANK).props.value).toBe("Owner");
+  });
+  it.each(["network", "evidence"])(
+    "keeps the note for a retry after a %s failure",
+    async (failure) => {
+      if (failure === "network") server.recordMonthlyReview.mockRejectedValue(new Error("Offline"));
+      else
+        server.recordMonthlyReview.mockResolvedValue({
+          ok: true,
+          evidenceBridged: false,
+          evidenceSkippedReason: "bridge_failed",
+        });
+      await press("Exception (found a problem)", "Deposit missing");
+      const render = () => runtime.render(() => MonthlyReview());
+      expect(noteField(render(), BANK).props.value).toBe("Deposit missing");
+      server.recordMonthlyReview.mockResolvedValue({ ok: true, evidenceBridged: true });
+      buttons(render())
+        .find((button) => button.props.children === "Exception (found a problem)")!
+        .props.onClick();
+      await vi.waitFor(() => expect(server.recordMonthlyReview).toHaveBeenCalledTimes(2));
+      expect(server.recordMonthlyReview.mock.calls[1][0].data.notes).toBe("Deposit missing");
+      expect(server.recordMonthlyReview.mock.calls[1][0].data.retry).toBe(true);
+      expect(practice.setMonthlyReviews).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(noteField(render(), BANK).props.value).toBe(""));
+    },
+  );
   it("sends today's local date, not the due date, with the result", async () => {
     server.recordMonthlyReview.mockResolvedValue({
       ok: true,
