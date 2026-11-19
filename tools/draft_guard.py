@@ -220,7 +220,10 @@ def guard(
             edits.append((start, end, "shall", f"{reply[start:end]} -> shall"))
 
     fixed_text, fixed = _apply_edits(reply, edits)
-    lint_text = _mask_ranges(fixed_text, _blockquote_ranges(fixed_text))
+    lint_text = _mask_ranges(
+        fixed_text,
+        _blockquote_ranges(fixed_text) + _backtick_ranges(fixed_text),
+    )
     lint_parties = _parties(lint_text, parties)
     lint_parties = sorted(
         set(lint_parties)

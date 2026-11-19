@@ -90,6 +90,15 @@ def test_guard_does_not_change_quoted_lines_or_backtick_text() -> None:
     assert code_result.fixed == []
 
 
+def test_backtick_spans_are_excluded_from_lint() -> None:
+    text = "The Vendor shall give 30 days' notice. Source: `thirty (30)`."
+
+    result = guard(text, "contract")
+
+    assert result.text == text
+    assert result.flags == []
+
+
 def test_contract_does_not_change_nonparty_modal() -> None:
     text = "This sentence must use shall."
     lowercase_subject = "the Vendor must provide written notice."
