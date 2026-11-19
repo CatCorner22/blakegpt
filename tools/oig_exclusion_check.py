@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -45,7 +47,23 @@ def download_leie(path: Path, timeout: int = 45) -> int:
             raise OSError(f"LEIE download returned HTTP {response.status}")
         data = response.read()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(data)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return len(data)
 
 
@@ -91,6 +109,16 @@ def check_names(
 
 def _normalize_header(header: str) -> str:
     return header.casefold().replace(" ", "").replace("_", "")
+
+
+def _validate_download_target(target: Path, input_paths: list[Path]) -> None:
+    resolved_target = target.resolve()
+    for input_path in input_paths:
+        if resolved_target == input_path.resolve():
+            raise ValueError(
+                f"download target {target} resolves to the same path as "
+                f"input file {input_path}"
+            )
 
 
 def _read_csv(
@@ -143,6 +171,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
+        if args.download:
+            input_paths = [args.input]
+            if args.leie is not None:
+                input_paths.append(args.leie)
+            _validate_download_target(args.download, input_paths)
         staff_rows = _read_csv(
             args.input,
             STAFF_HEADERS,

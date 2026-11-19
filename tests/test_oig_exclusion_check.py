@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.oig_exclusion_check import check_names, main
+from tools.oig_exclusion_check import check_names, download_leie, main
 
 
 def test_matches_exact_name_npi_and_business_from_synthetic_fixture() -> None:
@@ -92,3 +92,82 @@ def test_cli_reports_missing_leie_headers_with_exit_two(
     assert "BUSNAME" in error
     assert "NPI" in error
     assert "EXCLDATE" in error
+
+
+def test_download_target_cannot_resolve_to_staff_input(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    staff = tmp_path / "staff.csv"
+    staff.write_text("first,last\nAda,Sample\n", encoding="utf-8")
+    target = tmp_path / "subdir" / ".." / "staff.csv"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["oig_exclusion_check", str(staff), "--download", str(target)],
+    )
+    monkeypatch.setattr(
+        "tools.oig_exclusion_check.download_leie",
+        lambda *_args, **_kwargs: pytest.fail("download must not run for an input path"),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert "download target" in error
+    assert "same path as input file" in error
+    assert staff.read_text(encoding="utf-8") == "first,last\nAda,Sample\n"
+
+
+def test_download_leie_replaces_target_after_success(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "UPDATED.csv"
+    target.write_bytes(b"old contents")
+    payload = b"LASTNAME,FIRSTNAME,MIDNAME,BUSNAME,NPI,EXCLTYPE,EXCLDATE,REINDATE\n"
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return payload
+
+    monkeypatch.setattr("tools.oig_exclusion_check.urlopen", lambda *_args, **_kwargs: Response())
+
+    assert download_leie(target) == len(payload)
+    assert target.read_bytes() == payload
+    assert list(tmp_path.glob(".UPDATED.csv.*.tmp")) == []
+
+
+def test_download_leie_preserves_target_when_transfer_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "UPDATED.csv"
+    target.write_bytes(b"old contents")
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            raise OSError("transfer interrupted")
+
+    monkeypatch.setattr("tools.oig_exclusion_check.urlopen", lambda *_args, **_kwargs: Response())
+
+    with pytest.raises(OSError, match="transfer interrupted"):
+        download_leie(target)
+
+    assert target.read_bytes() == b"old contents"
+    assert list(tmp_path.glob(".UPDATED.csv.*.tmp")) == []
