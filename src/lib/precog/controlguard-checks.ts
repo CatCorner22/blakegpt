@@ -3,6 +3,7 @@ import { decimalParts, finite, fraction, multiply, type Fraction } from "./contr
 
 const amount = z.number().nonnegative();
 const text = z.string().trim().min(1);
+const checkText = z.string().refine((value) => value.trim().length > 0);
 const day = 86_400_000;
 
 export const priceInput = z.strictObject({
@@ -138,7 +139,7 @@ export function cliff({ start, notice_days, term_days, term_months }: z.infer<ty
 }
 
 export const leaveInput = z.strictObject({
-  text: z.string().min(1),
+  text: checkText,
   shift_hours: amount.min(0.01).max(24).optional(),
   kind: z.enum(["planned_pto", "statutory_leave"]).optional(),
   usage_increment_hours: amount.optional(),
@@ -197,7 +198,7 @@ export function leave({
 }
 
 export const policyInput = z.strictObject({
-  text: z.string().min(1),
+  text: checkText,
   title: z.string().min(1).optional(),
   kind: z.enum(["policy", "contract"]).optional(),
 });

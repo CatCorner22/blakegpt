@@ -32,6 +32,14 @@ import {
   runControlGuardCheck,
 } from "./controlguard-server";
 
+it.each(["leave", "policy"] as const)("rejects missing or blank text for %s", async (name) => {
+  for (const text of [undefined, "", " \t\n "]) {
+    await expect(
+      runControlGuardCheck({ data: { name, facts: JSON.stringify({ text }), entries: [] } }),
+    ).resolves.toEqual({ error: "Enter text to check." });
+  }
+});
+
 it("keeps a rate-limited draft on the manual path without spending a model unit", async () => {
   await expect(
     extractControlGuardFacts({ data: { prompt: "Find the notice date." } }),

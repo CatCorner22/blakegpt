@@ -84,6 +84,13 @@ export const runControlGuardCheck = createServerFn({ method: "POST" })
         ),
       };
     } catch (error) {
+      if (
+        (data.name === "leave" || data.name === "policy") &&
+        error instanceof z.ZodError &&
+        error.issues.some(({ path }) => path[0] === "text")
+      ) {
+        return { error: "Enter text to check." };
+      }
       return {
         error:
           error instanceof Error && !(error instanceof z.ZodError || error instanceof SyntaxError)
