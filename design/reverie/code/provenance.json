@@ -1,0 +1,295 @@
+{
+  "character": "Reverie",
+  "pronouns": "she/her",
+  "sourceCommit": "48a7bf5a5dddb78a21894867ce3332d82a44e24d",
+  "copiedAtUTC": "2026-11-19T02:23:30.637841+00:00",
+  "snapshot": "Selected exact committed reference files, not a runnable app or release claim",
+  "appModified": false,
+  "files": [
+    {
+      "file": "code/BrandArt.focus-reference.tsx",
+      "source": "src/components/BrandArt.tsx",
+      "sha256": "654c4038de33b21b1039f4e1e4f56d23f90a65beb38a25cb920d6aa6126b30a4"
+    },
+    {
+      "file": "code/reverie.focus-reference.ts",
+      "source": "src/lib/reverie.ts",
+      "sha256": "faa010dd4a593aa89c4550da156e8a5b31ae37097b262fd9eb5685e82d2bdd68"
+    },
+    {
+      "file": "code/public/brand/cat-handoff.png",
+      "source": "public/brand/cat-handoff.png",
+      "sha256": "db41773de934cc10b4b10ea718da81ea45eae5e50e664edeeec8615d93e30f57"
+    },
+    {
+      "file": "code/public/brand/cat-icon.png",
+      "source": "public/brand/cat-icon.png",
+      "sha256": "cf01c41ed9456d005b75bdd1828d056afd3afd3c9170d9859deef0370bf04495"
+    },
+    {
+      "file": "code/public/brand/cat-library.png",
+      "source": "public/brand/cat-library.png",
+      "sha256": "8d5df93203354b014fadd6c094be80c09d4c5c24e69c2505465cce27cb7d27df"
+    },
+    {
+      "file": "code/public/brand/cat-touch.png",
+      "source": "public/brand/cat-touch.png",
+      "sha256": "26c71d4fdca368a789afd742ece2f2147f829922d51c084acf4ec4114e510c19"
+    },
+    {
+      "file": "code/public/brand/focus-aim.png",
+      "source": "public/brand/focus-aim.png",
+      "sha256": "9ee1d30fc2fd3b72ccdd210a651e14f7c1c6421e93c925bbe0a0873779860742"
+    },
+    {
+      "file": "code/public/brand/garden-river.png",
+      "source": "public/brand/garden-river.png",
+      "sha256": "c09c50caffcd1d7770b375a94ab6c5414676ffd394b061f85161b8036edec026"
+    },
+    {
+      "file": "code/public/brand/horizon-next.png",
+      "source": "public/brand/horizon-next.png",
+      "sha256": "5f2ed9eef56181303ff3de4cf2e612b4bf8f770f4269dac2c58b68ced16246dc"
+    },
+    {
+      "file": "code/public/brand/reverie-kite.png",
+      "source": "public/brand/reverie-kite.png",
+      "sha256": "7c57fa31fdab3c657cdb0eab6674842a764983dda95e771a7e9061e0186fdcfa"
+    },
+    {
+      "file": "code/public/brand/reverie-stratosphere.png",
+      "source": "public/brand/reverie-stratosphere.png",
+      "sha256": "3bc765378182f4899bd5acfd80cc402b9282c20222ef6020d7e1593c5095fc2c"
+    },
+    {
+      "file": "code/public/brand/target-prepare.png",
+      "source": "public/brand/target-prepare.png",
+      "sha256": "70110ed909682ab017bb331b815636f36f9b9e4776898456a9918790fa6f9529"
+    },
+    {
+      "file": "code/public/brand/telescope-explore.png",
+      "source": "public/brand/telescope-explore.png",
+      "sha256": "3de16a98119edbe1a1543e2093bfbbb8c692afaf73d967d548e9e95878c9dc3d"
+    },
+    {
+      "file": "code/public/brand/vision-imagine.png",
+      "source": "public/brand/vision-imagine.png",
+      "sha256": "16ebe5765a1673d521d2dc85315e099482c254dfa83bb74e3607ef1ad2984a8c"
+    },
+    {
+      "file": "code/focus-context/src/routes/reverie.tsx",
+      "source": "src/routes/reverie.tsx",
+      "sha256": "da88aa88031328370030b091d9c1724eadc091927807484d282c5fb6cd43a65a"
+    },
+    {
+      "file": "code/focus-context/src/components/StudioWelcome.tsx",
+      "source": "src/components/StudioWelcome.tsx",
+      "sha256": "0e3185ac50ef352c7fa4ea693672a5bd57f176cf9d614f5bb08ed2124461d857"
+    },
+    {
+      "file": "code/focus-context/src/routes/welcome.tsx",
+      "source": "src/routes/welcome.tsx",
+      "sha256": "8b2ab6af220a8629683e649b3d2b400b67daccb9117268542a473b601420420a"
+    },
+    {
+      "file": "code/focus-context/src/lib/onboarding.ts",
+      "source": "src/lib/onboarding.ts",
+      "sha256": "b646980ab179526d208538c43ca850babdf81d0d734af82123d9744b488e2b52"
+    },
+    {
+      "file": "code/focus-context/src/components/AppHeader.tsx",
+      "source": "src/components/AppHeader.tsx",
+      "sha256": "cbab22bdd79069011d2ae64a982899bd82890f36351c7601d07dc9b151541320"
+    },
+    {
+      "file": "code/focus-context/src/routes/index.tsx",
+      "source": "src/routes/index.tsx",
+      "sha256": "b2a8c9027f911ddc0c5770b146f58ca8f679fc1ab5e998f4e693be95038400ef"
+    },
+    {
+      "file": "code/focus-context/src/routes/library.tsx",
+      "source": "src/routes/library.tsx",
+      "sha256": "c99c86e68d9cc8781e306ad13341bac4f5c771a6135dd4e879b86268439c674b"
+    },
+    {
+      "file": "code/focus-context/src/styles.css",
+      "source": "src/styles.css",
+      "sha256": "af6aefc7a681d5a28ecaf5c44cdfbe8a019c188ec98c4453a32425be4d47f71f"
+    },
+    {
+      "file": "code/focus-context/src/test/welcome-session.test.tsx",
+      "source": "src/test/welcome-session.test.tsx",
+      "sha256": "5ecd4af56aabe33d9e5ae02baf996c4ff8e8948136359b694b7d759a058fb28d"
+    },
+    {
+      "file": "code/focus-context/docs/BRAND.md",
+      "source": "docs/BRAND.md",
+      "sha256": "e5a4257e606f47bd711daf52f8d637bb0389472f5f7e9f59a96182df211eb4cf"
+    },
+    {
+      "file": "code/focus-context/src/components/GardenHome.tsx",
+      "source": "src/components/GardenHome.tsx",
+      "sha256": "9d0d15ca74128e5aae0de11e0ae38297edf105680e4cac99f1a5ca242ff8d7d0"
+    },
+    {
+      "file": "code/focus-context/src/lib/garden-content.ts",
+      "source": "src/lib/garden-content.ts",
+      "sha256": "a5caacdacc562ec2f1430990e54e41a005f7726b49ca94d6adc9bd1f5082f8f0"
+    },
+    {
+      "file": "code/focus-context/src/lib/garden-preferences.ts",
+      "source": "src/lib/garden-preferences.ts",
+      "sha256": "53b877255c0b8292f454113448081f207a90377733eba0c12d2b31b87dcc39f1"
+    },
+    {
+      "file": "code/focus-context/src/hooks/useStudioNavigationGuard.ts",
+      "source": "src/hooks/useStudioNavigationGuard.ts",
+      "sha256": "3b61354b5ec6582f39a297ac487752876d88d834694a726b0967e49e09802896"
+    },
+    {
+      "file": "code/focus-context/src/test/garden-home.test.tsx",
+      "source": "src/test/garden-home.test.tsx",
+      "sha256": "ce6969a0ff607a0820339cbebca64b2f09483bbebc9d2b386365b39095d3710a"
+    },
+    {
+      "file": "code/focus-context/src/test/garden-preferences.test.ts",
+      "source": "src/test/garden-preferences.test.ts",
+      "sha256": "7f679ebe36a74496341a559e83ac35b25cb35053a42fb8b7e44e04fc9ea63f7c"
+    },
+    {
+      "file": "code/focus-context/src/test/studio-navigation-guard.test.tsx",
+      "source": "src/test/studio-navigation-guard.test.tsx",
+      "sha256": "bbaaff40e58b864dbbd00c719dbf13537e737e72d576dc3cd583ea104687c186"
+    },
+    {
+      "file": "code/focus-context/docs/CAT-SAMURAI.md",
+      "source": "docs/CAT-SAMURAI.md",
+      "sha256": "8f2270ac87e53c4bd2e5ef1112fcffe0bff788b8cc99d9eb4f57669819500745"
+    },
+    {
+      "file": "code/focus-context/docs/GARDEN-PATH-RELEASE.md",
+      "source": "docs/GARDEN-PATH-RELEASE.md",
+      "sha256": "f102e599f49c28c271e161bb0194a102717766acf86845c51eaf91f7d8727cff"
+    },
+    {
+      "file": "code/focus-context/src/components/StratospherePanel.tsx",
+      "source": "src/components/StratospherePanel.tsx",
+      "sha256": "eb50d28e8f31dac2fcbccf0e4f1d212397d5e47c341f690bbee082b481c5563e"
+    },
+    {
+      "file": "code/focus-context/src/components/InteractionLab.tsx",
+      "source": "src/components/InteractionLab.tsx",
+      "sha256": "2f0fd8a39bf12d0f8650a734140941095936610eba40f3ae92d1860183f3b26b"
+    },
+    {
+      "file": "code/focus-context/src/components/FieldGuide.tsx",
+      "source": "src/components/FieldGuide.tsx",
+      "sha256": "7ccb66e3aa29dad8e93cfa6d3e0c4fa149e8a9c253bccac2667c503749583673"
+    },
+    {
+      "file": "code/focus-context/src/components/ComponentSheet.tsx",
+      "source": "src/components/ComponentSheet.tsx",
+      "sha256": "931f35413262a6597749c4bbf7334c73f53e2f4f19a8354cec9a8783201873c2"
+    },
+    {
+      "file": "code/focus-context/src/components/AuthoredPagePanel.tsx",
+      "source": "src/components/AuthoredPagePanel.tsx",
+      "sha256": "788c8c2a865013325c2bbf6e828cb2691d2dcdec35306d274f02e0af88668f74"
+    },
+    {
+      "file": "code/focus-context/src/components/HostedBoundary.tsx",
+      "source": "src/components/HostedBoundary.tsx",
+      "sha256": "a6a34520fd4f461108886b75c4e1c754a955e7cd12c12c231d96ea35d3ff1063"
+    },
+    {
+      "file": "code/focus-context/src/lib/stratosphere.ts",
+      "source": "src/lib/stratosphere.ts",
+      "sha256": "87a97bac6e6e33345c88ba54fd157a44063562a8c7d00e905a2a1dfbc7a3d0ec"
+    },
+    {
+      "file": "code/focus-context/src/lib/field-guide.ts",
+      "source": "src/lib/field-guide.ts",
+      "sha256": "fa47530f368182474fce002869b83cfe14c794f04fb03adae6868dcb4cc9ddd0"
+    },
+    {
+      "file": "code/focus-context/src/lib/design.ts",
+      "source": "src/lib/design.ts",
+      "sha256": "7f868ab1155ff6525facee2cb7d9436f7a3d9e9de2e7d564d861ab7a277b5b89"
+    },
+    {
+      "file": "code/focus-context/src/routes/stratosphere.tsx",
+      "source": "src/routes/stratosphere.tsx",
+      "sha256": "e56bde589101717908c8b8208434b5d827daf3d5140eaf581b2fdfd031e43277"
+    },
+    {
+      "file": "code/focus-context/src/routes/field-guide.tsx",
+      "source": "src/routes/field-guide.tsx",
+      "sha256": "fdfe2fdc01f078e0c699bc348c45438d182058c78dfad2497df31257dab51069"
+    },
+    {
+      "file": "code/focus-context/src/styles/stratosphere.css",
+      "source": "src/styles/stratosphere.css",
+      "sha256": "4922a7df962d5dfc65a7004652db3dc6289f5ea3360169905aa55e33618cd417"
+    },
+    {
+      "file": "code/focus-context/src/styles/field-guide.css",
+      "source": "src/styles/field-guide.css",
+      "sha256": "30dda9d62651a054cdb58072678dd31354e93d6267bb48606b564937d24b563c"
+    },
+    {
+      "file": "code/focus-context/src/test/stratosphere.test.ts",
+      "source": "src/test/stratosphere.test.ts",
+      "sha256": "37de833e35caab4ab3a1ee61ba59698d54d3d5bf87184e7b271e1ac95550a5f8"
+    },
+    {
+      "file": "code/focus-context/src/test/stratosphere-panel.test.tsx",
+      "source": "src/test/stratosphere-panel.test.tsx",
+      "sha256": "7f5054633cb7d3493a99fd7c1d2f7bcb6cf846d638c5e739a5e2e71e8422d857"
+    },
+    {
+      "file": "code/focus-context/src/test/interaction-lab.test.tsx",
+      "source": "src/test/interaction-lab.test.tsx",
+      "sha256": "f94e86c51844ae18d5da973387c2add1908dcdb87731f55e3d4d820c0cbf840d"
+    },
+    {
+      "file": "code/focus-context/src/test/field-guide.test.tsx",
+      "source": "src/test/field-guide.test.tsx",
+      "sha256": "18835b58984cf7b1b2334667a2973740679596318c5d38af38ff5843bec8f32b"
+    },
+    {
+      "file": "code/focus-context/src/test/authored-page-export.test.tsx",
+      "source": "src/test/authored-page-export.test.tsx",
+      "sha256": "9c10ef28d82e2990ccb97d92f41c28a8e111eceada5a55e0c21830ea0ed9d4fc"
+    },
+    {
+      "file": "code/focus-context/src/test/design.test.ts",
+      "source": "src/test/design.test.ts",
+      "sha256": "1bcf1155d37c3e0be548e08421b344487529a1480eded829a3397583326b4ddb"
+    },
+    {
+      "file": "code/focus-context/src/test/hosted-boundary-storage.test.tsx",
+      "source": "src/test/hosted-boundary-storage.test.tsx",
+      "sha256": "f4fdf1e7b0d766d84e36c0bb1a9bd0598e5e3f5f9d2d4fdb961d6d0f58bd7d98"
+    },
+    {
+      "file": "code/focus-context/src/test/studio-workshop-lifetime.test.tsx",
+      "source": "src/test/studio-workshop-lifetime.test.tsx",
+      "sha256": "ddcd102134b6fbd53de73fbe15ba98bd7401fb3b1e2bb4ed6234154c60c478a5"
+    },
+    {
+      "file": "code/focus-context/docs/STRATOSPHERE-RELEASE.md",
+      "source": "docs/STRATOSPHERE-RELEASE.md",
+      "sha256": "e49fed03776730aa6d2b527dd997eecaff5d8f16c238411a3badd05e8ee2aa55"
+    },
+    {
+      "file": "code/focus-context/docs/FIELD-GUIDE-SOURCES.md",
+      "source": "docs/FIELD-GUIDE-SOURCES.md",
+      "sha256": "0d659542ace05d5a3eddedd10e15b6952adcc2f6b3f6e2d1fd84505a79cf397c"
+    },
+    {
+      "file": "code/focus-context/docs/STRATOSPHERE-CACHE-FIX.md",
+      "source": "docs/STRATOSPHERE-CACHE-FIX.md",
+      "sha256": "160e041b3fb2be2ee6824708d409b5046eb44d55ba3a3eea90ffe4e255334aca"
+    }
+  ]
+}
