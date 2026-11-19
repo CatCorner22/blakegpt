@@ -201,7 +201,7 @@ def lint(
             )
 
     xref_target = (
-        r"(?:\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*"
+        r"(?:\d+[A-Za-z]?(?:\.\d+[A-Za-z]?|\([A-Za-z0-9]+\))*"
         r"|[IVXLCDM]+(?:\.[A-Z0-9]+)*(?:\([A-Za-z0-9]+\))*)"
     )
     xref_pattern = re.compile(

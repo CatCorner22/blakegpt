@@ -46,6 +46,12 @@ def test_numeric_cross_reference_rule() -> None:
     assert "R-NUMERIC-XREF" not in rules("Section IVetera describes payment.")
 
 
+def test_numeric_cross_reference_accepts_lettered_and_subpart_targets() -> None:
+    assert "R-NUMERIC-XREF" in rules("See Section 2A for payment.")
+    assert "R-NUMERIC-XREF" in rules("See Section 3.1(b) for payment.")
+    assert "R-NUMERIC-XREF" in rules("See Article IV(a) for payment.")
+
+
 def test_outline_hierarchy_and_invalid_labels() -> None:
     clean = "I. First\nA. Second\n1. Third\n(a) Fourth\n(i) Fifth"
     assert "R-OUTLINE" not in rules(clean)
