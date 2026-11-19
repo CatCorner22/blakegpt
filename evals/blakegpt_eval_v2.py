@@ -180,11 +180,14 @@ def run_evaluation(label: str) -> Path:
 def rescore_artifact(artifact: Path) -> Path:
     source = artifact if artifact.is_absolute() else ROOT / artifact
     source = source.resolve()
+    label = source.stem.removeprefix("blakegpt-eval-v2-").removesuffix("-rescored")
+    output = ROOT / "artifacts" / f"blakegpt-eval-v2-{label}-rescored.json"
+    if output.resolve() == source:
+        raise ValueError(f"Refusing to overwrite input artifact: {source}")
+
     stored = json.loads(source.read_text(encoding="utf-8"))
     rows = [_rescore_row(stored_row) for stored_row in stored["results"]]
 
-    label = source.stem.removeprefix("blakegpt-eval-v2-").removesuffix("-rescored")
-    output = ROOT / "artifacts" / f"blakegpt-eval-v2-{label}-rescored.json"
     rescored = {
         **stored,
         "rescored_at": time.strftime("%FT%TZ", time.gmtime()),
@@ -205,7 +208,10 @@ def main() -> int:
     parser.add_argument("--rescore", type=Path)
     args = parser.parse_args()
     if args.rescore is not None:
-        rescore_artifact(args.rescore)
+        try:
+            rescore_artifact(args.rescore)
+        except ValueError as error:
+            parser.error(str(error))
     else:
         run_evaluation(args.label)
     return 0

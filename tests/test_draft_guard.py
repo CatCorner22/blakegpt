@@ -2,6 +2,7 @@ import sys
 from io import StringIO
 
 import evals.blakegpt_eval_v2 as eval_v2
+import pytest
 
 from evals.blakegpt_eval_v2 import CASES, score_case
 from tools.draft_guard import guard, main, route
@@ -182,6 +183,28 @@ def test_rescoring_a_saved_reply_twice_is_idempotent() -> None:
     assert once["need"] == twice["need"]
     assert once["forbidden"] == twice["forbidden"]
     assert once["pass"] == twice["pass"] is True
+
+
+def test_rescore_rejects_an_output_path_that_matches_input(
+    tmp_path, monkeypatch
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    source = artifacts / "blakegpt-eval-v2-sample-rescored.json"
+    source.write_text('{"results": []}', encoding="utf-8")
+    before = source.read_bytes()
+    monkeypatch.setattr(eval_v2, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["blakegpt_eval_v2", "--rescore", str(source)],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        eval_v2.main()
+
+    assert error.value.code == 2
+    assert source.read_bytes() == before
 
 
 def test_cli_reads_stdin_and_prints_guarded_text(monkeypatch, capsys) -> None:
