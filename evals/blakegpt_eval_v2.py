@@ -5,14 +5,26 @@ regexes that must all match (`need`), regexes that must not match (`forbid`)
 and, for in-scope cases, the card id retrieval must surface in the top 3.
 Usage: BLAKEGPT_BASE_URL=... BLAKEGPT_MODEL=... BLAKEGPT_API_KEY=... \
        python evals/blakegpt_eval_v2.py [--label NAME]
+       python evals/blakegpt_eval_v2.py --rescore ARTIFACT.json
 """
 from __future__ import annotations
 
-import json, re, sys, time
+import argparse
+import json
+import os
+import re
+import sys
+import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+for directory in (ROOT, SCRIPT_DIR):
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
+
 import blakegpt_light_eval as base  # noqa: E402
+from tools.draft_guard import guard, route  # noqa: E402
 
 WD = r"(10|ten)\W*(\(10\)\W*)?working days"
 NOT_COVERED = r"\A\W*not yet in the verified base"
@@ -55,35 +67,139 @@ CASES = [
     ("tool-leave", "An employee accrues 1.54 hours of PTO per pay period with a 40-hour cap. Calculate her balance after 30 pay periods.", None, [r"40", r"leave_hours|calculator|tool"], []),
     ("tool-expense", "Here's our card statement. Find split purchases and duplicate charges.", None, [r"expense_audit|tool|CSV|upload"], []),
 ]
+CASES_BY_NAME = {case[0]: case for case in CASES}
 
 
-def main():
-    label = sys.argv[sys.argv.index("--label") + 1] if "--label" in sys.argv else "run"
+def guard_reply(question: str, reply: str) -> str:
+    mode = route(question)
+    return guard(reply, mode).text if mode is not None else reply
+
+
+def score_case(case, reply: str, seconds: float, top_cards: list[str]) -> dict:
+    name, question, card, need, forbid = case
+    answer = reply.split("\n\nDrafting check (tools/draft_guard.py):", 1)[0]
+    need_ok = {pattern: bool(re.search(pattern, answer, re.I)) for pattern in need}
+    forbid_hit = [pattern for pattern in forbid if re.search(pattern, answer, re.I)]
+    hit = (card in top_cards) if card else None
+    return {
+        "case": name,
+        "question": question,
+        "top_cards": top_cards,
+        "retrieval_hit": hit,
+        "reply": reply,
+        "seconds": round(seconds, 2),
+        "need": need_ok,
+        "forbidden": forbid_hit,
+        "pass": all(need_ok.values()) and not forbid_hit and hit is not False,
+    }
+
+
+def _print_result(row: dict) -> None:
+    missing = [pattern for pattern, matched in row["need"].items() if not matched]
+    retrieval_note = "" if row["retrieval_hit"] is not False else "RETRIEVAL-MISS"
+    print(
+        ("PASS " if row["pass"] else "FAIL ") + row["case"],
+        row["seconds"],
+        missing,
+        row["forbidden"],
+        retrieval_note,
+        flush=True,
+    )
+
+
+def _print_summary(rows: list[dict], output: Path) -> None:
+    seconds = sorted(row["seconds"] for row in rows)
+    median = seconds[len(seconds) // 2] if seconds else 0.0
+    passed = sum(row["pass"] for row in rows)
+    print(f"passed {passed}/{len(rows)}; median {median}s; wrote {output}")
+
+
+def run_evaluation(label: str) -> Path:
     cards = base.load_cards()
-    instructions = (base.ROOT / "muse/amanda/PROJECT_INSTRUCTIONS.md").read_text(encoding="utf-8")
+    instructions = (ROOT / "muse/amanda/PROJECT_INSTRUCTIONS.md").read_text(
+        encoding="utf-8"
+    )
     rows = []
-    for name, q, card, need, forbid in CASES:
-        top = base.bm25(q, cards)
-        ids = [cards[p][0] for p in top]
-        context = "\n\n".join(f"=== CARD {cards[p][0]} ({p}) ===\n{cards[p][1]}" for p in top)
+    for case in CASES:
+        name, question, _, _, _ = case
+        top = base.bm25(question, cards)
+        top_cards = [cards[position][0] for position in top]
+        context = "\n\n".join(
+            f"=== CARD {cards[position][0]} ({position}) ===\n{cards[position][1]}"
+            for position in top
+        )
         try:
-            reply, secs = base.ask(instructions + "\n\n# Retrieved knowledge cards\n" + context, q)
-        except Exception as e:  # noqa: BLE001
-            reply, secs = f"ERROR {e}", 0.0
-        need_ok = {n: bool(re.search(n, reply, re.I)) for n in need}
-        forbid_hit = [f for f in forbid if re.search(f, reply, re.I)]
-        hit = (card in ids) if card else None
-        rows.append({"case": name, "question": q, "top_cards": ids, "retrieval_hit": hit,
-                     "reply": reply, "seconds": round(secs, 2), "need": need_ok, "forbidden": forbid_hit,
-                     "pass": all(need_ok.values()) and not forbid_hit and hit is not False})
-        print(("PASS " if rows[-1]["pass"] else "FAIL ") + name, rows[-1]["seconds"],
-              [k for k, v in need_ok.items() if not v], forbid_hit, "" if hit is not False else "RETRIEVAL-MISS", flush=True)
-    out = base.ROOT / "artifacts" / f"blakegpt-eval-v2-{label}.json"
-    out.parent.mkdir(exist_ok=True)
-    out.write_text(json.dumps({"model": base.os.environ.get("BLAKEGPT_MODEL"), "at": time.strftime("%FT%TZ", time.gmtime()), "results": rows}, indent=2), encoding="utf-8")
-    secs = sorted(r["seconds"] for r in rows)
-    print(f"passed {sum(r['pass'] for r in rows)}/{len(rows)}; median {secs[len(secs)//2]}s; wrote {out}")
+            reply, seconds = base.ask(
+                instructions + "\n\n# Retrieved knowledge cards\n" + context,
+                question,
+            )
+        except Exception as error:  # noqa: BLE001
+            reply, seconds = f"ERROR {error}", 0.0
+        reply = guard_reply(question, reply)
+        row = score_case(case, reply, seconds, top_cards)
+        rows.append(row)
+        _print_result(row)
+
+    output = ROOT / "artifacts" / f"blakegpt-eval-v2-{label}.json"
+    output.parent.mkdir(exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {
+                "model": os.environ.get("BLAKEGPT_MODEL"),
+                "at": time.strftime("%FT%TZ", time.gmtime()),
+                "results": rows,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    _print_summary(rows, output)
+    return output
+
+
+def rescore_artifact(artifact: Path) -> Path:
+    source = artifact if artifact.is_absolute() else ROOT / artifact
+    source = source.resolve()
+    stored = json.loads(source.read_text(encoding="utf-8"))
+    rows = []
+    for stored_row in stored["results"]:
+        case = CASES_BY_NAME[stored_row["case"]]
+        reply = guard_reply(case[1], stored_row["reply"])
+        row = score_case(
+            case,
+            reply,
+            stored_row["seconds"],
+            stored_row["top_cards"],
+        )
+        rows.append({**stored_row, **row})
+
+    label = source.stem.removeprefix("blakegpt-eval-v2-").removesuffix("-rescored")
+    output = ROOT / "artifacts" / f"blakegpt-eval-v2-{label}-rescored.json"
+    rescored = {
+        **stored,
+        "rescored_at": time.strftime("%FT%TZ", time.gmtime()),
+        "rescored_from": source.name,
+        "results": rows,
+    }
+    output.parent.mkdir(exist_ok=True)
+    output.write_text(json.dumps(rescored, indent=2), encoding="utf-8")
+    for row in rows:
+        _print_result(row)
+    _print_summary(rows, output)
+    return output
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Evaluate or re-score BlakeGPT replies.")
+    parser.add_argument("--label", default="run")
+    parser.add_argument("--rescore", type=Path)
+    args = parser.parse_args()
+    if args.rescore is not None:
+        rescore_artifact(args.rescore)
+    else:
+        run_evaluation(args.label)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
