@@ -121,6 +121,20 @@ def _validate_download_target(target: Path, input_paths: list[Path]) -> None:
             )
 
 
+def _validate_staff_identifiers(rows: list[dict[str, str]]) -> None:
+    if any(
+        (row["first"].strip() and row["last"].strip())
+        or row["business"].strip()
+        or row["npi"].strip()
+        for row in rows
+    ):
+        return
+    raise ValueError(
+        "staff CSV has no usable identifiers. Accepted headers are first and last "
+        "(first/first_name and last/last_name), business/business_name, or npi."
+    )
+
+
 def _read_csv(
     path: Path,
     aliases: dict[str, tuple[str, ...]],
@@ -179,9 +193,10 @@ def main() -> int:
         staff_rows = _read_csv(
             args.input,
             STAFF_HEADERS,
-            ("first", "last"),
+            (),
             "staff",
         )
+        _validate_staff_identifiers(staff_rows)
         leie_path = args.leie
         if args.download:
             size = download_leie(args.download)
