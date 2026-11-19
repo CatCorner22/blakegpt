@@ -1,0 +1,307 @@
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { fieldCls } from "@/components/ui/field-classes";
+import { BILLING_TERMS_SENTENCE } from "@/lib/precog/firm/plan-contents";
+import {
+  checkoutPlanFor,
+  PILOT_OFFER,
+  planAmounts,
+  TIERS,
+  type BillingInterval,
+  type CheckoutPlan,
+  type FirmPlan,
+  type PlanAmounts,
+  type PlanPrices,
+  type Tier,
+} from "@/lib/precog/firm/pricing";
+import type { BillingAccount } from "@/lib/precog/firm/billing-store";
+import {
+  ACTIVE_SUBSCRIPTION_STATUSES,
+  assessmentCreditApplies,
+  assessmentPaid,
+  subscriptionStatusLabel,
+} from "@/lib/precog/firm/billing-store";
+import { PAST_DUE_GRACE_DAYS, type Entitlements } from "@/lib/precog/firm/entitlements";
+import { openBillingPortal, startCheckout } from "@/lib/precog/billing/server";
+
+/**
+ * The offer and how to buy it. With Stripe connected the buttons open
+ * Checkout, print the amounts of the Stripe prices they charge (`prices`,
+ * read by the page), and the plan follows the webhook; without it the owner
+ * records the stage by hand.
+ */
+export function FirmBilling({
+  plan,
+  billing,
+  billingConfigured,
+  prices,
+  entitlements,
+  canManage,
+  onMarkPlan,
+}: {
+  plan: FirmPlan;
+  billing: BillingAccount | null;
+  billingConfigured: boolean;
+  /** Stripe's amounts; null while unknown, so no figure prints that Checkout would not charge. */
+  prices: PlanPrices | null;
+  /**
+   * What the firm's plan opens today; null while unknown. The page passes
+   * getEntitlements' answer, whose client count prints the "n of limit" line.
+   */
+  entitlements: (Entitlements & { clientCount?: number }) | null;
+  canManage: boolean;
+  onMarkPlan: (plan: FirmPlan) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [tier, setTier] = useState<Tier>(1);
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("month");
+  const active = billing?.subscriptionStatus
+    ? ACTIVE_SUBSCRIPTION_STATUSES.has(billing.subscriptionStatus)
+    : false;
+  const paid = assessmentPaid(billing);
+
+  // With Stripe connected, only Stripe's own amounts are printed; the offer's
+  // figures describe the manual (invoiced) arrangement.
+  const amounts = planAmounts(billingConfigured, prices);
+  // A tier with no price for the chosen interval is not offered; while the
+  // prices are unknown nothing is greyed out (Checkout refuses an unset one).
+  const offered = (t: Tier, i: BillingInterval) => !amounts || amounts.tiers[t][i] !== null;
+  const selectedPrice = amounts ? amounts.tiers[tier][billingInterval] : null;
+  const countLine =
+    billingConfigured && entitlements ? clientCountLine(entitlements, canManage) : null;
+
+  async function buy(which: CheckoutPlan) {
+    setBusy(true);
+    try {
+      const { url } = await startCheckout({ data: { plan: which } });
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Precog could not start checkout.");
+      setBusy(false);
+    }
+  }
+
+  async function portal() {
+    setBusy(true);
+    try {
+      const { url } = await openBillingPortal();
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Precog could not open the billing portal.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section id="plan" className="rounded-xl border border-border bg-surface p-4">
+      <h2 className="text-lg font-semibold">Plan</h2>
+      <p className="mt-1 text-sm text-muted">{planSentence(billingConfigured, billing, amounts)}</p>
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs text-muted">Current plan</dt>
+          <dd className="mt-1 font-medium">
+            {billingConfigured && entitlements
+              ? currentPlanLabel(entitlements)
+              : plan === "monthly"
+                ? PILOT_OFFER.monthlyLabel
+                : PILOT_OFFER.assessmentLabel}
+          </dd>
+        </div>
+        {billingConfigured && (
+          <>
+            <div>
+              <dt className="text-xs text-muted">Assessment paid</dt>
+              <dd className="mt-1 font-medium">{assessmentCell(billing)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Subscription</dt>
+              <dd className="mt-1 font-medium">{subscriptionCell(billing)}</dd>
+            </div>
+          </>
+        )}
+      </dl>
+      {countLine && <p className="mt-2 text-sm text-muted">{countLine}</p>}
+      {canManage && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {billingConfigured ? (
+            <>
+              {!paid && !active && (
+                <p className="w-full text-xs text-subtle">
+                  Start with the assessment, or go straight to the {PILOT_OFFER.monthlyLabel}.
+                </p>
+              )}
+              {!paid && (
+                <Button size="sm" onClick={() => void buy("assessment")} disabled={busy}>
+                  Pay for the assessment{amounts ? ` (${amounts.assessment})` : ""}
+                </Button>
+              )}
+              {!active && (
+                <div className="flex w-full flex-wrap items-end gap-2">
+                  <label className="text-xs text-muted">
+                    Tier
+                    <select
+                      className={`${fieldCls} mt-1 block`}
+                      value={tier}
+                      onChange={(e) => setTier(Number(e.target.value) as Tier)}
+                    >
+                      {TIERS.map((t) => (
+                        <option
+                          key={t.tier}
+                          value={t.tier}
+                          disabled={!offered(t.tier, billingInterval)}
+                        >
+                          {`${t.label} (${t.clients} clients)`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-muted">
+                    Billing
+                    <select
+                      className={`${fieldCls} mt-1 block`}
+                      value={billingInterval}
+                      onChange={(e) => setBillingInterval(e.target.value as BillingInterval)}
+                    >
+                      <option value="month">Monthly</option>
+                      <option value="year">{"Yearly (ten months' price)"}</option>
+                    </select>
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void buy(checkoutPlanFor(tier, billingInterval))}
+                    disabled={busy || !offered(tier, billingInterval)}
+                  >
+                    Start the {PILOT_OFFER.monthlyLabel}
+                    {selectedPrice ? ` (${selectedPrice})` : ""}
+                  </Button>
+                </div>
+              )}
+              {billing?.stripeCustomerId && (
+                <Button size="sm" variant="secondary" onClick={() => void portal()} disabled={busy}>
+                  Manage billing
+                </Button>
+              )}
+              <p className="w-full text-xs text-subtle">{BILLING_TERMS_SENTENCE}</p>
+              <Link to="/pricing" className="text-xs underline-offset-4 hover:underline">
+                See pricing
+              </Link>
+            </>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void onMarkPlan(plan === "monthly" ? "assessment" : "monthly")}
+              >
+                {plan === "monthly"
+                  ? "Mark as back on the assessment"
+                  : `Mark as moved to the ${PILOT_OFFER.monthlyLabel}`}
+              </Button>
+              <p className="self-center text-xs text-subtle">
+                Card payments are not connected on this deployment, so we invoice you outside
+                Precog.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The offer in one sentence. With Stripe connected it says whether the
+ * Assessment fee is credited against the Firm plan's invoices: it is on the
+ * first subscription Checkout of an account that paid and was not refunded;
+ * an account that subscribed before, or was credited already, paid a one-off.
+ */
+function planSentence(
+  billingConfigured: boolean,
+  billing: BillingAccount | null,
+  amounts: PlanAmounts | null,
+): string {
+  const assessment = `${PILOT_OFFER.assessmentLabel}${amounts ? `: ${amounts.assessment}` : ""} — ${PILOT_OFFER.assessmentDetail}`;
+  const monthly = `${PILOT_OFFER.monthlyLabel}${amounts ? ` at ${amounts.monthly}` : ""}`;
+  if (!billingConfigured) {
+    return `${assessment} The assessment converts to the ${monthly}. ${PILOT_OFFER.monthlyDetail}`;
+  }
+  if (assessmentCreditApplies(billing)) {
+    return `${assessment} When you start the ${monthly}, the ${amounts ? amounts.assessment : "fee"} you paid for the Assessment is credited against its invoices, before tax. ${PILOT_OFFER.monthlyDetail}`;
+  }
+  if (billing?.subscriptionId || billing?.assessmentCreditUsedAt) {
+    return `${assessment} The Assessment is a one-off payment. ${PILOT_OFFER.monthlyDetail}`;
+  }
+  return `${assessment} Start the ${monthly} later and the Assessment fee is credited against its invoices. ${PILOT_OFFER.monthlyDetail}`;
+}
+
+/**
+ * "Free", "Assessment (until 2026-12-30)", "Assessment (ended 2026-12-30)",
+ * "Firm plan" (tier unknown) or "Firm plan · Starter, up to 5 client
+ * businesses", and the overdue and closed forms.
+ */
+function currentPlanLabel(e: Entitlements): string {
+  if (e.closedAt) return `${PILOT_OFFER.monthlyLabel} (closed ${e.closedAt.slice(0, 10)})`;
+  if (e.plan === "firm") {
+    const tier = TIERS.find((t) => t.tier === e.tier);
+    const name = tier
+      ? `${PILOT_OFFER.monthlyLabel} · ${tier.label}, up to ${e.clientLimit} client businesses`
+      : PILOT_OFFER.monthlyLabel;
+    return e.graceEndsAt ? `${name} (payment overdue, closes ${e.graceEndsAt.slice(0, 10)})` : name;
+  }
+  if (e.plan === "assessment" && e.paidUntil) {
+    return `${PILOT_OFFER.assessmentLabel} (until ${e.paidUntil.slice(0, 10)})`;
+  }
+  if (e.assessmentEndedAt) {
+    return `${PILOT_OFFER.assessmentLabel} (ended ${e.assessmentEndedAt.slice(0, 10)})`;
+  }
+  return "Free";
+}
+
+/**
+ * "4 of 5 client businesses" on an open Firm plan whose client count is
+ * known; at a Starter or Practice limit it says how to get more: the owner
+ * moves up a tier in Manage billing, a member asks the owner.
+ */
+function clientCountLine(
+  e: Entitlements & { clientCount?: number },
+  canManage: boolean,
+): string | null {
+  if (e.plan !== "firm" || typeof e.clientCount !== "number") return null;
+  const line = `${e.clientCount} of ${e.clientLimit} client businesses`;
+  if (e.tier === null || e.tier === 3 || e.clientCount < e.clientLimit) return line;
+  return canManage
+    ? `${line} · Move up a tier in Manage billing.`
+    : `${line} · Ask the firm owner to move up a tier.`;
+}
+
+/** "Refunded 2026-09-20", "Disputed", the day it was paid, or "Not yet". */
+function assessmentCell(billing: BillingAccount | null): string {
+  if (billing?.assessmentRefundedAt) return `Refunded ${billing.assessmentRefundedAt.slice(0, 10)}`;
+  if (billing?.assessmentDisputedAt) return "Disputed";
+  return billing?.assessmentPaidAt ? billing.assessmentPaidAt.slice(0, 10) : "Not yet";
+}
+
+/**
+ * The status in plain words, with the renewal date while the subscription
+ * runs (an overdue one still renews once the card pays) or the end date once
+ * cancelled. An overdue one with a known start says when the plan closes.
+ */
+function subscriptionCell(billing: BillingAccount | null): string {
+  const status = billing?.subscriptionStatus ?? null;
+  const label = subscriptionStatusLabel(status);
+  if (status === "past_due" && billing?.pastDueSince) {
+    const since = billing.pastDueSince.slice(0, 10);
+    const closes = new Date(Date.parse(billing.pastDueSince) + PAST_DUE_GRACE_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    return `${label} since ${since} · closes ${closes} unless the payment goes through`;
+  }
+  const day = billing?.currentPeriodEnd?.slice(0, 10);
+  if (!day) return label;
+  if (status && ACTIVE_SUBSCRIPTION_STATUSES.has(status)) return `${label} · renews ${day}`;
+  if (status === "canceled") return `${label} · ends ${day}`;
+  return label;
+}

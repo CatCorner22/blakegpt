@@ -1,0 +1,90 @@
+import { resolveTemplate } from "../active-template";
+import { caseDurationPhrase, caseForRule, lossPhrase } from "../evidence";
+import type { CaseStudy } from "../evidence/types";
+import type { IndustryId } from "../industry";
+import { ownSetupProfile } from "../business-lifecycle";
+import {
+  detectSodConflicts,
+  SEVERITY_RANK,
+  sodDetectionOptions,
+  type DetectedConflict,
+} from "../sod/detect";
+import { buildOwnTeam, type OwnTeamRow } from "./own-team";
+import type { SetupAnswers } from "./setup-answers";
+
+/**
+ * The first finding, while setup is still open: as soon as two duties on one
+ * row form a conflict the engine would report, name it and the case that
+ * shows what the same arrangement cost someone. Nothing here is stored; it
+ * is the same detection the map runs, on the rows as typed.
+ */
+export interface SetupPreview {
+  /** People with at least one duty ticked. */
+  peopleWithDuties: number;
+  /**
+   * The conflicts of the same kind as the first finding: those an employee
+   * holds, or, when only the owner holds any, the owner's. The owner's own
+   * pairs are a lesser finding after setup, so they do not swell the count
+   * of employee findings.
+   */
+  conflictCount: number;
+  first: {
+    conflict: DetectedConflict;
+    /**
+     * A case that cites the finding's rule, or null. A case that only shares
+     * a scheme is left out, as on the duty-conflict card after setup.
+     */
+    study: CaseStudy | null;
+    lossPhrase: string | null;
+    durationPhrase: string | null;
+  } | null;
+}
+
+export function previewSetup(
+  rows: readonly OwnTeamRow[],
+  industry: IndustryId,
+  answers?: SetupAnswers,
+): SetupPreview {
+  const profile = ownSetupProfile({
+    industry,
+    practiceName: "",
+    people: buildOwnTeam(rows, industry),
+    answers,
+  });
+  const people = profile.customPeople ?? [];
+  const peopleWithDuties = people.filter((p) =>
+    (p.entitlements ?? []).some((e) => e !== "view_reports_only"),
+  ).length;
+  if (peopleWithDuties === 0) return { peopleWithDuties, conflictCount: 0, first: null };
+
+  const tpl = resolveTemplate(profile);
+  const report = detectSodConflicts(
+    tpl,
+    profile.staff,
+    sodDetectionOptions(tpl, profile.dualRelease),
+  );
+  // Employees' conflicts first: an owner holding both duties is a different,
+  // lesser finding, and not the one to open a demo with. Then the tier, so a
+  // pair a hard gate lifted leads whatever its own score; then the score.
+  const ranked = [...report.conflicts].sort(
+    (a, b) =>
+      Number(a.ownerHeld) - Number(b.ownerHeld) ||
+      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+      b.score - a.score,
+  );
+  const conflict = ranked[0];
+  if (!conflict) return { peopleWithDuties, conflictCount: 0, first: null };
+  const pick = caseForRule(conflict.ruleId, industry);
+  const matched = pick?.citesRule ? pick : null;
+  return {
+    peopleWithDuties,
+    conflictCount: ranked.filter((c) => c.ownerHeld === conflict.ownerHeld).length,
+    first: {
+      conflict,
+      study: matched?.study ?? null,
+      // A record with no stated loss has no amount to print.
+      lossPhrase: matched && matched.study.lossUsd > 0 ? lossPhrase(matched.study) : null,
+      durationPhrase: matched ? caseDurationPhrase(matched.study) : null,
+    },
+  };
+}

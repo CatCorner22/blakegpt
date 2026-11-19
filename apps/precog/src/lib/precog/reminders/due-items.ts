@@ -1,0 +1,235 @@
+import { profileStandInConflicts } from "../continuity/standin-conflicts";
+import { defaultReviewer } from "../industry";
+import { resolveTemplate } from "../active-template";
+import { decisionsDue } from "../decisions/follow-through";
+import { absencesNeedingAttention, plannedAbsenceReport } from "../continuity/planned-absence";
+import { handoverDeadline, leavers } from "../continuity/leavers";
+import {
+  latestReview,
+  MONTHLY_REVIEW_GRACE_DAY,
+  monthKey,
+  monthlyReviewTasks,
+  reviewDueOn,
+} from "../firm/reviews";
+import { isOwnTeam } from "../firm/engagement";
+import type { PracticeProfile } from "../practice-profile";
+import { daysBetween, formatDay } from "../dates";
+import { count, joinWithAnd, verb } from "../text";
+import { procedureAttention } from "../procedures/attention";
+
+/**
+ * What is due on one business, read from the saved profile the same way the
+ * screens read it, so a reminder never names something the app would not
+ * show. Each item carries a stable key and due date; the reminder log keeps
+ * one row per (announcement key, due date, recipient), so an item is
+ * announced when it comes due and again every four weeks while it stays
+ * overdue.
+ *
+ * Named ReminderItem, not DueItem: builder/due.ts's DueItem is the control
+ * calendar's entry, a different shape.
+ */
+export interface ReminderItem {
+  /** Stable for the item's life. */
+  key: string;
+  /** What the reminder log records: the key, plus how many four-week periods it has been overdue. */
+  announceKey: string;
+  title: string;
+  /** For the advisor's digest. */
+  detail: string;
+  /** For the client's owner: never the advisor's own notes. */
+  ownerDetail: string;
+  dueOn: string;
+  overdue: boolean;
+  /** Overdue for at least four weeks and announced before. */
+  stillOpen: boolean;
+  /** Only the advisor hears about it (the monthly review, on a business with a firm). */
+  advisorOnly: boolean;
+  /** The home page's search string that opens the item's tab (`?tab=monthly&item=decisions`). */
+  href: string;
+}
+
+/**
+ * `hasFirm` is whether the business has a firm working on it. The monthly
+ * review is the advisor's only then; a business with no firm has no advisor
+ * but its owner, so its owner's note names the review too. Defaults to true,
+ * so a caller that does not say keeps the advisor-only rule.
+ */
+export function dueItemsFor(
+  profile: PracticeProfile,
+  today: string,
+  { hasFirm = true }: { hasFirm?: boolean } = {},
+): ReminderItem[] {
+  if (!isOwnTeam(profile)) return [];
+  const items: ReminderItem[] = [];
+  const add = (item: Omit<ReminderItem, "announceKey" | "stillOpen">) =>
+    items.push(withAnnouncement(item, today));
+  const tpl = resolveTemplate(profile);
+
+  const { overdue, dueSoon } = decisionsDue(profile.decisions, today, 7);
+  for (const decision of [...overdue, ...dueSoon]) {
+    const reviewBy = decision.reviewBy ?? today;
+    add({
+      key: `decision:${decision.id}`,
+      title: `Review the decision on ${decision.subject}`,
+      detail: decision.note ? decision.note.slice(0, 160) : `Review due ${formatDay(reviewBy)}.`,
+      ownerDetail: `Your advisor set ${formatDay(reviewBy)} to review this decision.`,
+      dueOn: reviewBy,
+      overdue: overdue.includes(decision),
+      advisorOnly: false,
+      href: "?tab=monthly&item=decisions",
+    });
+  }
+
+  for (const check of profile.leaverAccessChecks ?? []) {
+    if (check.confirmedOn || check.industry !== profile.industry) continue;
+    const detail = `Precog recorded ${check.name} as left on ${formatDay(check.notedOn)}. A sign-in that still works lets someone who has left move money.`;
+    add({
+      key: `leaver:${check.id}`,
+      title: `Confirm ${check.name} is off payroll and you have removed their sign-ins`,
+      detail,
+      ownerDetail: detail,
+      dueOn: check.notedOn,
+      overdue: (daysBetween(check.notedOn, today) ?? 0) > 0,
+      advisorOnly: false,
+      href: "?tab=knowledge",
+    });
+  }
+
+  const conflictsFor = profileStandInConflicts(tpl, profile);
+  const absences = plannedAbsenceReport(
+    tpl,
+    profile.plannedAbsences ?? [],
+    profile.industry,
+    today,
+    conflictsFor,
+  );
+  for (const window of absencesNeedingAttention(absences.windows)) {
+    const stops = window.impact.stops;
+    if (stops.length === 0) continue;
+    const hasHandoff = profile.decisions.some(
+      (d) => d.linkedAbsenceId === window.absence.id && d.status !== "closed",
+    );
+    if (hasHandoff) continue;
+    const detail = `${count(stops.length, "task")} ${verb(stops.length, "stops", "stop")} while they are out, and you have named no one to cover ${verb(stops.length, "it", "them")}.`;
+    add({
+      key: `absence:${window.absence.id}`,
+      title: `${window.person.name} is away from ${formatDay(window.absence.from)}: name who covers`,
+      detail,
+      ownerDetail: detail,
+      dueOn: window.absence.from,
+      overdue: window.daysUntil <= 0,
+      advisorOnly: false,
+      href: "?tab=knowledge",
+    });
+  }
+
+  for (const leaver of leavers(tpl, profile.decisions, today, conflictsFor)) {
+    const deadline = handoverDeadline(leaver, today);
+    if ((daysBetween(today, deadline) ?? 0) > LEAVER_LEAD_DAYS) continue;
+    const open = leaver.handover.filter((item) => !item.training && !item.documenting);
+    if (open.length === 0) continue;
+    const detail = open
+      .slice(0, 3)
+      .map((item) => item.item.name)
+      .join(", ");
+    add({
+      key: `handover:${leaver.person.id}:${leaver.lastDay}`,
+      title: `${leaver.person.name} leaves on ${formatDay(leaver.lastDay)}: ${count(open.length, "task")} still to hand off`,
+      detail,
+      ownerDetail: detail,
+      dueOn: deadline,
+      overdue: deadline <= today,
+      advisorOnly: false,
+      href: "?tab=knowledge",
+    });
+  }
+
+  const nameOf = (id: string | undefined) => tpl.people.find((p) => p.id === id)?.name;
+  const attention = procedureAttention(
+    profile.procedures ?? [],
+    tpl.knowledge,
+    tpl.people,
+    profile.industry,
+    today,
+  );
+  for (const { procedure, dueOn, overdue } of attention.reviewDue) {
+    const checker = nameOf(procedure.reviewerPersonId) ?? defaultReviewer(profile.industry, true);
+    const detail = `${checker} checks the steps still match the software or the place. They were last checked on ${formatDay(procedure.verifiedAt ?? dueOn)}.`;
+    add({
+      key: `procedure-review:${procedure.id}`,
+      title: `Check the procedure "${procedure.title}" still works`,
+      detail,
+      ownerDetail: detail,
+      dueOn,
+      overdue,
+      advisorOnly: false,
+      href: `?tab=procedures&item=${encodeURIComponent(procedure.id)}`,
+    });
+  }
+  for (const { procedure, backupIds, dueOn, overdue } of attention.unproven) {
+    const names = backupIds.map(nameOf).filter((n): n is string => Boolean(n));
+    const detail = `${names.length ? joinWithAnd(names) : "The named stand-in"} ${verb(names.length || 1, "has", "have")} not yet done this critical task alone. Have one of them follow the procedure while someone watches.`;
+    add({
+      key: `procedure-unproven:${procedure.id}`,
+      title: `Have a stand-in do "${procedure.title}" alone`,
+      detail,
+      ownerDetail: detail,
+      dueOn,
+      overdue,
+      advisorOnly: false,
+      href: `?tab=procedures&item=${encodeURIComponent(procedure.id)}`,
+    });
+  }
+
+  // The monthly review is the advisor's when a firm works on the business,
+  // else the owner's: it is due from MONTHLY_REVIEW_GRACE_DAY (as the Needs
+  // attention menu counts it) and stays due until every item has a result
+  // for the period.
+  const period = monthKey(today);
+  const day = Number(today.slice(8, 10));
+  if (day >= MONTHLY_REVIEW_GRACE_DAY) {
+    const tasks = monthlyReviewTasks(today, tpl.people, tpl.roleTemplates);
+    const open = tasks.filter(
+      (task) => !latestReview(profile.monthlyReviews ?? [], task.key, period),
+    );
+    if (open.length > 0) {
+      const dueOn = reviewDueOn(period);
+      const detail = open.map((task) => task.title).join(", ");
+      add({
+        key: `monthly:${period}`,
+        title: `Monthly review for ${period}: ${open.length} of ${count(tasks.length, "task")} not yet recorded`,
+        detail,
+        ownerDetail: detail,
+        dueOn,
+        overdue: dueOn < today,
+        advisorOnly: hasFirm,
+        href: "?tab=monthly",
+      });
+    }
+  }
+
+  return items.sort(
+    (a, b) => Number(b.overdue) - Number(a.overdue) || a.dueOn.localeCompare(b.dueOn),
+  );
+}
+
+/** The items each audience hears about: the client's owner never gets advisor-only ones. */
+export function forAudience(
+  items: readonly ReminderItem[],
+  audience: "advisor" | "owner",
+): ReminderItem[] {
+  return audience === "advisor" ? [...items] : items.filter((item) => !item.advisorOnly);
+}
+
+const LEAVER_LEAD_DAYS = 7;
+/** An overdue item is announced again after this many days while it stays open. */
+const REANNOUNCE_DAYS = 28;
+
+function withAnnouncement(
+  item: Omit<ReminderItem, "announceKey" | "stillOpen">,
+  today: string,
+): ReminderItem {
+  if (!item.overdue) return { ...item, announceKey: item.key, stillOpen: false };
+  const period = Math.floor(Math.max(0, daysBetween(item.dueOn, today) ?? 0) / REANNOUNCE_DAYS);
+  return { ...item, announceKey: `${item.key}#overdue-${period}`, stillOpen: period > 0 };
+}

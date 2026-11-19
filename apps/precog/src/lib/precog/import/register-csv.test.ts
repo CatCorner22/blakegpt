@@ -1,0 +1,444 @@
+import { describe, expect, it } from "vitest";
+import { getIndustryTemplate } from "../templates";
+import { coverageReport } from "../continuity/coverage";
+import type { IndustryTemplate } from "../templates";
+import type { KnowledgeItem, Person } from "../types";
+import {
+  mergeRegisterImport,
+  parseRegisterCsv,
+  registerTemplateCsv,
+  registerToCsv,
+  unmatchedRowsMessage,
+} from "./register-csv";
+
+const dental = getIndustryTemplate("dental");
+
+const people: Person[] = [
+  { id: "p-ana", name: "Ana Ruiz", role: "Owner", active: true },
+  { id: "p-ben", name: "Ben Lee", role: "Manager", active: true },
+  { id: "p-dee", name: "Dee Former", role: "Bookkeeper", active: false },
+];
+
+const knowledge: KnowledgeItem[] = [
+  {
+    id: "k-payroll",
+    name: "Run payroll",
+    kind: "duty",
+    criticality: "critical",
+    category: "process",
+    description: "Every other Friday",
+    linkedProcessIds: ["proc-payroll"],
+    documented: false,
+  },
+  {
+    id: "k-vendor",
+    name: "Vendor quirks",
+    kind: "knowledge",
+    criticality: "important",
+    category: "tribal",
+    description: 'Who needs a "PO", who does not',
+    linkedProcessIds: [],
+    documented: true,
+    procedureLocation: "Drive > Vendors > Quirks.docx",
+    confirmedAt: "2025-01-15",
+  },
+];
+
+const tpl: IndustryTemplate = {
+  ...dental,
+  people,
+  knowledge,
+  relations: [
+    { personId: "p-ana", knowledgeId: "k-payroll", level: "expert" },
+    { personId: "p-ben", knowledgeId: "k-payroll", level: "basic" },
+    { personId: "p-dee", knowledgeId: "k-payroll", level: "expert" },
+    { personId: "p-ben", knowledgeId: "k-vendor", level: "proficient" },
+    { personId: "p-ana", knowledgeId: "k-vendor", level: "aware" },
+  ],
+};
+
+describe("registerToCsv", () => {
+  it("writes one row per item with a column per active person", () => {
+    const csv = registerToCsv(tpl);
+    expect(csv.split("\r\n")).toEqual([
+      "item,kind,criticality,documented,procedure location,last confirmed,description,Ana Ruiz,Ben Lee,precog id",
+      "Run payroll,duty,critical,false,,,Every other Friday,expert,learning,k-payroll",
+      'Vendor quirks,knowledge,important,true,Drive > Vendors > Quirks.docx,2025-01-15,"Who needs a ""PO"", who does not",aware,can do,k-vendor',
+      "",
+    ]);
+  });
+
+  it("round-trips through parseRegisterCsv keeping ids, links and many-to-many levels", () => {
+    const result = parseRegisterCsv(registerToCsv(tpl), tpl);
+    expect(result.issues).toEqual([]);
+    expect(result.knowledge).toEqual(knowledge);
+    const key = (r: { personId: string; knowledgeId: string; level: string }) =>
+      `${r.knowledgeId}|${r.personId}|${r.level}`;
+    expect(result.relations.map(key).sort()).toEqual(
+      tpl.relations
+        .filter((r) => r.personId !== "p-dee")
+        .map(key)
+        .sort(),
+    );
+    expect(coverageReport({ ...tpl, ...result }).items.map((i) => [i.item.id, i.status])).toEqual(
+      coverageReport(tpl).items.map((i) => [i.item.id, i.status]),
+    );
+  });
+
+  it("keeps both namesakes' marks through a round trip and says it read them in team order", () => {
+    const twins: IndustryTemplate = {
+      ...tpl,
+      people: [
+        { id: "a", name: "Maria Garcia", role: "Clerk", active: true },
+        { id: "b", name: "Maria Garcia", role: "Payroll", active: true },
+      ],
+      relations: [
+        { personId: "a", knowledgeId: "k-payroll", level: "basic" },
+        { personId: "b", knowledgeId: "k-payroll", level: "expert" },
+      ],
+    };
+    const result = parseRegisterCsv(registerToCsv(twins), twins);
+    expect(result.relations).toEqual(twins.relations);
+    expect(result.issues).toEqual([
+      {
+        row: 0,
+        message:
+          "2 people on the active team are named Maria Garcia; the importer read their columns in the order the team lists them",
+      },
+    ]);
+  });
+
+  it("round-trips every industry template", () => {
+    for (const id of ["dental", "retail"] as const) {
+      const base = getIndustryTemplate(id);
+      const result = parseRegisterCsv(registerToCsv(base), base);
+      expect(result.issues, id).toEqual([]);
+      expect(
+        result.knowledge.map((k) => k.id),
+        id,
+      ).toEqual(base.knowledge.map((k) => k.id));
+      expect(result.relations.length, id).toBe(
+        base.relations.filter((r) => base.people.find((p) => p.id === r.personId)?.active).length,
+      );
+    }
+  });
+});
+
+describe("parseRegisterCsv", () => {
+  it("accepts header aliases, level labels, several people per item and several items per person", () => {
+    const csv =
+      "\uFEFFDuty,Type,Importance,Written procedure,Notes,ANA RUIZ,ben lee\r\n" +
+      "Open the shop,duty,Business stops without it,yes,Keys and alarm,Expert,Can do\r\n" +
+      "Close the till,task,medium,,,E,Learning\r\n" +
+      "Supplier passwords,know-how,can wait,no,,x,-\r\n";
+    const result = parseRegisterCsv(csv, tpl);
+
+    expect(result.issues).toEqual([]);
+    expect(result.knowledge).toEqual([
+      {
+        id: "k-open-the-shop",
+        name: "Open the shop",
+        kind: "duty",
+        criticality: "critical",
+        category: "process",
+        description: "Keys and alarm",
+        linkedProcessIds: [],
+        documented: true,
+      },
+      {
+        id: "k-close-the-till",
+        name: "Close the till",
+        kind: "task",
+        criticality: "important",
+        category: "process",
+        description: "",
+        linkedProcessIds: [],
+        documented: false,
+      },
+      {
+        id: "k-supplier-passwords",
+        name: "Supplier passwords",
+        kind: "knowledge",
+        criticality: "nice-to-have",
+        category: "tribal",
+        description: "",
+        linkedProcessIds: [],
+        documented: false,
+      },
+    ]);
+    expect(result.relations).toEqual([
+      { personId: "p-ana", knowledgeId: "k-open-the-shop", level: "expert" },
+      { personId: "p-ben", knowledgeId: "k-open-the-shop", level: "proficient" },
+      { personId: "p-ana", knowledgeId: "k-close-the-till", level: "expert" },
+      { personId: "p-ben", knowledgeId: "k-close-the-till", level: "basic" },
+      { personId: "p-ana", knowledgeId: "k-supplier-passwords", level: "proficient" },
+    ]);
+  });
+
+  it("keeps the existing id and process links when an item is matched by name", () => {
+    const result = parseRegisterCsv(
+      "item,criticality,Ana Ruiz\r\nrun PAYROLL,important,expert\r\n",
+      tpl,
+    );
+    expect(result.knowledge).toEqual([
+      { ...knowledge[0], name: "run PAYROLL", criticality: "important" },
+    ]);
+    expect(result.relations).toEqual([
+      { personId: "p-ana", knowledgeId: "k-payroll", level: "expert" },
+    ]);
+  });
+
+  it("skips columns for people not on the active team and reports them once", () => {
+    const csv = "item,Ana Ruiz,Dee Former,Nobody Here\r\nRun payroll,expert,expert,expert\r\n";
+    const result = parseRegisterCsv(csv, tpl);
+    expect(result.issues).toEqual([
+      {
+        row: 0,
+        message:
+          "These columns name people not on the active team, so the importer skipped them: Dee Former, Nobody Here",
+      },
+    ]);
+    expect(result.relations).toEqual([
+      { personId: "p-ana", knowledgeId: "k-payroll", level: "expert" },
+    ]);
+  });
+
+  it("flags bad levels, unknown kinds and criticalities, blank names and duplicate items", () => {
+    const csv =
+      "item,kind,criticality,Ana Ruiz,Ben Lee\r\n" +
+      "Run payroll,chore,urgent,guru,\r\n" +
+      ",duty,critical,expert,\r\n" +
+      "RUN PAYROLL,duty,critical,expert,expert\r\n" +
+      "Run payroll ,duty,critical,expert,expert\r\n";
+    const result = parseRegisterCsv(csv, tpl);
+    expect(result.issues).toEqual([
+      { row: 1, message: 'Unknown kind "chore"; using duty' },
+      { row: 1, message: 'Unknown criticality "urgent"; using critical' },
+      {
+        row: 1,
+        message: '"guru" is not a level for Ana Ruiz; use expert, can do, learning or aware',
+      },
+      { row: 2, message: "Each row must have an item name" },
+      { row: 3, message: '"RUN PAYROLL" appears twice; the importer skipped the second row' },
+      { row: 4, message: '"Run payroll" appears twice; the importer skipped the second row' },
+    ]);
+    expect(result.knowledge).toHaveLength(1);
+    expect(result.knowledge[0]).toMatchObject({
+      id: "k-payroll",
+      kind: "duty",
+      criticality: "critical",
+    });
+    expect(result.relations).toEqual([]);
+  });
+
+  it("gives new items with colliding slugs distinct ids", () => {
+    const long = "Reconcile the merchant settlement report against the bank";
+    const csv = `item\r\n${long} on Mondays\r\n${long} on Fridays\r\n`;
+    const result = parseRegisterCsv(csv, tpl);
+    const ids = result.knowledge.map((k) => k.id);
+    expect(ids[1]).toBe(`${ids[0]}-2`);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("requires an item column and honours maxRows", () => {
+    expect(parseRegisterCsv("Ana Ruiz,Ben Lee\r\nexpert,expert\r\n", tpl).issues).toEqual([
+      { row: 0, message: "Missing an item column (duty, task or know-how name)" },
+    ]);
+    const result = parseRegisterCsv("item\r\nA\r\nB\r\nC\r\n", tpl, { maxRows: 2 });
+    expect(result.knowledge.map((k) => k.name)).toEqual(["A", "B"]);
+    expect(result.issues).toEqual([
+      { row: 3, message: "This import reads the first 2 rows; it did not read 1 more row" },
+    ]);
+  });
+});
+
+describe("parseRegisterCsv: invisible characters and delimiters", () => {
+  const tpl = { ...dental, people, knowledge, relations: [] } as IndustryTemplate;
+
+  it("strips a right-to-left override and a zero-width space from an item name", () => {
+    const r = parseRegisterCsv("item\n\u202ERun payroll\u200B", tpl);
+    expect(r.knowledge.map((k) => [k.id, k.name])).toEqual([["k-payroll", "Run payroll"]]);
+  });
+
+  it("reads a semicolon file and a tab file", () => {
+    for (const text of [
+      "item;kind;Ana Ruiz\nRun payroll;duty;expert",
+      "item\tkind\tAna Ruiz\nRun payroll\tduty\texpert",
+    ]) {
+      const r = parseRegisterCsv(text, tpl);
+      expect(r.issues).toEqual([]);
+      expect(r.relations).toEqual([
+        { personId: "p-ana", knowledgeId: "k-payroll", level: "expert" },
+      ]);
+    }
+  });
+});
+
+describe("documented and level cells", () => {
+  const tpl = { ...dental, people, knowledge, relations: [] } as IndustryTemplate;
+
+  it("reports a documented value that is neither yes nor no and keeps the one on record", () => {
+    const r = parseRegisterCsv("item,documented\nRun payroll,maybe\nVendor quirks,x", tpl);
+    expect(r.knowledge.map((k) => k.documented)).toEqual([false, true]);
+    expect(r.issues).toEqual([
+      { row: 1, message: 'Documented "maybe" must be yes or no; kept no' },
+    ]);
+  });
+
+  it("reads N/A and a dash in a level cell as no level", () => {
+    const r = parseRegisterCsv("item,Ana Ruiz,Ben Lee\nRun payroll,N/A,—", tpl);
+    expect(r.issues).toEqual([]);
+    expect(r.relations).toEqual([]);
+  });
+});
+
+describe("procedure location column", () => {
+  it("reads aliases, keeps the existing location when the column is absent, and omits blanks", () => {
+    const withAlias = parseRegisterCsv(
+      "item,where documented,Ana Ruiz\r\nRun payroll,Binder on the front desk,expert\r\n",
+      tpl,
+    );
+    expect(withAlias.knowledge[0].procedureLocation).toBe("Binder on the front desk");
+
+    const withoutColumn = parseRegisterCsv(
+      "item,Ana Ruiz\r\nVendor quirks,expert\r\nNew thing,expert\r\n",
+      tpl,
+    );
+    expect(withoutColumn.knowledge[0].procedureLocation).toBe("Drive > Vendors > Quirks.docx");
+    expect("procedureLocation" in withoutColumn.knowledge[1]).toBe(false);
+
+    const blank = parseRegisterCsv(
+      "item,procedure location,Ana Ruiz\r\nVendor quirks,,expert\r\n",
+      tpl,
+    );
+    expect("procedureLocation" in blank.knowledge[0]).toBe(false);
+  });
+});
+
+describe("last confirmed column", () => {
+  it("round-trips valid confirmation dates", () => {
+    const result = parseRegisterCsv(registerToCsv(tpl), tpl);
+    expect(result.knowledge.find((k) => k.id === "k-vendor")?.confirmedAt).toBe("2025-01-15");
+  });
+
+  it("ignores invalid dates and preserves an existing confirmation", () => {
+    for (const value of ["not-a-date", "2025-99-99", "2025-02-30", "2099-01-01"]) {
+      const result = parseRegisterCsv(
+        `item,last checked,Ana Ruiz\r\nVendor quirks,${value},expert\r\n`,
+        tpl,
+      );
+      expect(result.knowledge[0].confirmedAt, value).toBe("2025-01-15");
+      expect(result.issues.map((issue) => issue.message).join(" "), value).toMatch(
+        value === "2099-01-01" ? /is after today/ : /is not a date/,
+      );
+    }
+    const blank = parseRegisterCsv("item,last checked,Ana Ruiz\r\nVendor quirks,,expert\r\n", tpl);
+    expect(blank.knowledge[0].confirmedAt).toBe("2025-01-15");
+    expect(blank.issues).toEqual([]);
+  });
+});
+
+describe("registerTemplateCsv", () => {
+  it("is importable and lists the active team as columns", () => {
+    const csv = registerTemplateCsv(tpl);
+    expect(csv.split("\r\n")[0]).toBe(
+      "item,kind,criticality,documented,procedure location,last confirmed,description,Ana Ruiz,Ben Lee",
+    );
+    const result = parseRegisterCsv(csv, tpl);
+    expect(result.issues).toEqual([]);
+    expect(result.knowledge).toHaveLength(1);
+    expect(result.knowledge[0].procedureLocation).toBe("Shared drive > Office > Payroll checklist");
+    expect(result.relations).toEqual([
+      { personId: "p-ana", knowledgeId: "k-run-month-end-payroll", level: "expert" },
+      { personId: "p-ben", knowledgeId: "k-run-month-end-payroll", level: "basic" },
+    ]);
+  });
+});
+
+describe("items whose names differ only in punctuation or case", () => {
+  const near: IndustryTemplate = {
+    ...tpl,
+    knowledge: [
+      { ...knowledge[0], id: "k1", name: "A/R follow-up", criticality: "critical" },
+      { ...knowledge[1], id: "k2", name: "A R follow up", criticality: "nice-to-have" },
+    ],
+    relations: [
+      { personId: "p-ana", knowledgeId: "k1", level: "expert" },
+      { personId: "p-ben", knowledgeId: "k2", level: "aware" },
+    ],
+  };
+
+  it("stay two items with their own marks through a round trip", () => {
+    const result = parseRegisterCsv(registerToCsv(near), near);
+    expect(result.issues).toEqual([]);
+    expect(result.unmatched).toEqual([]);
+    expect(result.knowledge).toEqual(near.knowledge);
+    expect(result.relations).toEqual(near.relations);
+  });
+
+  it("stay apart when the rows come back in a different order", () => {
+    const [header, first, second] = registerToCsv(near).split("\r\n");
+    const result = parseRegisterCsv([header, second, first, ""].join("\r\n"), near);
+    expect(result.knowledge.map((k) => [k.id, k.name])).toEqual([
+      ["k2", "A R follow up"],
+      ["k1", "A/R follow-up"],
+    ]);
+    expect(result.relations).toEqual([
+      { personId: "p-ben", knowledgeId: "k2", level: "aware" },
+      { personId: "p-ana", knowledgeId: "k1", level: "expert" },
+    ]);
+  });
+
+  it("match by name in the register's order when the file has no id column", () => {
+    const csv =
+      "item,criticality,Ana Ruiz,Ben Lee\r\nAR follow up,important,,expert\r\nar followup,,,\r\n";
+    const result = parseRegisterCsv(csv, near);
+    expect(result.knowledge.map((k) => [k.id, k.name, k.criticality])).toEqual([
+      ["k1", "AR follow up", "important"],
+      ["k2", "ar followup", "nice-to-have"],
+    ]);
+    expect(result.relations).toEqual([{ personId: "p-ben", knowledgeId: "k1", level: "expert" }]);
+  });
+
+  it("reports a third row with the same name as unmatched and changes nothing for it", () => {
+    const csv =
+      "item,Ana Ruiz\r\nA/R follow-up,expert\r\nA R follow up,\r\nAR Follow-Up,expert\r\n";
+    const result = parseRegisterCsv(csv, near);
+    expect(result.knowledge.map((k) => k.id)).toEqual(["k1", "k2"]);
+    expect(result.unmatched).toEqual([{ row: 3, name: "AR Follow-Up" }]);
+    expect(result.relations).toEqual([{ personId: "p-ana", knowledgeId: "k1", level: "expert" }]);
+  });
+});
+
+describe("mergeRegisterImport", () => {
+  it("replaces only the items the file names and keeps the rest with their marks", () => {
+    const file = parseRegisterCsv(
+      "item,Ana Ruiz,Ben Lee\r\nVendor quirks,expert,\r\nOpen the shop,,can do\r\n",
+      tpl,
+    );
+    const merged = mergeRegisterImport(tpl, file);
+    expect(merged.knowledge.map((k) => k.id)).toEqual(["k-payroll", "k-vendor", "k-open-the-shop"]);
+    expect(merged.relations).toEqual([
+      { personId: "p-ana", knowledgeId: "k-payroll", level: "expert" },
+      { personId: "p-ben", knowledgeId: "k-payroll", level: "basic" },
+      { personId: "p-dee", knowledgeId: "k-payroll", level: "expert" },
+      { personId: "p-ana", knowledgeId: "k-vendor", level: "expert" },
+      { personId: "p-ben", knowledgeId: "k-open-the-shop", level: "proficient" },
+    ]);
+  });
+
+  it("says which rows it could not match", () => {
+    expect(unmatchedRowsMessage([])).toBeNull();
+    expect(
+      unmatchedRowsMessage([
+        { row: 3, name: "AR Follow-Up" },
+        { row: 5, name: "Payroll" },
+      ]),
+    ).toBe(
+      "Precog could not match 2 rows to items in your register: AR Follow-Up, Payroll. It changed nothing for them.",
+    );
+    expect(unmatchedRowsMessage([{ row: 3, name: "Payroll" }])).toBe(
+      "Precog could not match 1 row to items in your register: Payroll. It changed nothing for them.",
+    );
+  });
+});

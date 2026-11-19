@@ -1,0 +1,160 @@
+@import "tailwindcss";
+/* Skins for one view each, kept out of this file's tokens and base rules. */
+@import "./components/precog/process-map/tactical.css";
+
+@theme {
+  /* Calm workspace: white and mist, ink, one teal accent. Colour means status or action. */
+  --color-bg: #f4f7f9;
+  --color-surface: #ffffff;
+  --color-elevated: #eef3f6;
+  --color-panel: #e5edf2;
+  --color-fg: #16202a;
+  --color-muted: #52606d;
+  /* 4.5:1 or better on every panel colour, the selected card included. */
+  --color-subtle: #5b6773;
+  --color-border: #d9e2e8;
+  --color-border-strong: #bfcbd4;
+  --color-primary: #0f766e;
+  --color-primary-fg: #ffffff;
+  --color-accent: #115e59;
+  --color-coral: #fc7458;
+  --color-danger: #b42318;
+  --color-warn: #b54708;
+  --color-ok: #067647;
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    color-scheme: light;
+    /* The one scroll offset for anchor jumps and scrollIntoView: sections
+       carry no own margin, so a target never stacks two offsets. The home
+       page measures its sticky header into --home-header-h (it wraps taller
+       on a phone); other pages fall back to a fixed clearance. */
+    scroll-padding-top: calc(var(--home-header-h, 7rem) + 1rem);
+  }
+  /* Every control shows where keyboard focus is, in forced colours too. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  /* Date fields focus a part of the date, not the field: ring the field. */
+  input[type="date"]:focus,
+  input[type="date"]:focus-within,
+  input[type="time"]:focus,
+  input[type="time"]:focus-within {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  /* A heading or panel that receives focus only to be read out needs no ring. */
+  :where(h1, h2, h3, p, main, section, div)[tabindex="-1"]:focus-visible {
+    outline: none;
+  }
+  /* Tabs sit in a scrolling strip; the ring goes inside so it is not cut off. */
+  [role="tab"]:focus-visible {
+    outline-offset: -2px;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+.glow-primary {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 45%, transparent);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Print: the /report route is a clean white document ── */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .report {
+    min-height: auto !important;
+  }
+  .report a {
+    text-decoration: none;
+    color: inherit;
+  }
+  /* Printing procedures: only the print view, none of the app around it. */
+  body:has(> .procedure-print) > :not(.procedure-print) {
+    display: none !important;
+  }
+}
+
+/* ── Keyboard focus on the map canvas (React Flow's own CSS removes it) ── */
+.react-flow .react-flow__node:focus-visible,
+.react-flow .react-flow__node.selectable:focus-visible,
+.react-flow .react-flow__controls-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.react-flow .react-flow__edge:focus-visible .react-flow__edge-path,
+.react-flow .react-flow__edge.selectable:focus-visible .react-flow__edge-path {
+  stroke: var(--color-primary);
+  stroke-width: 3;
+}
+
+/* ── React Flow chrome (minimap + controls) on the mist canvas ── */
+.react-flow .react-flow__minimap {
+  background: color-mix(in oklab, var(--color-surface) 92%, transparent);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.react-flow .react-flow__minimap svg {
+  background: transparent;
+}
+.react-flow .react-flow__controls {
+  box-shadow: 0 2px 8px rgba(22, 32, 42, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow .react-flow__controls-button {
+  background: var(--color-elevated);
+  border-bottom: 1px solid var(--color-border-strong);
+  color: var(--color-fg);
+  fill: var(--color-fg);
+}
+.react-flow .react-flow__controls-button:hover {
+  background: var(--color-panel);
+}
+.react-flow .react-flow__controls-button svg {
+  fill: var(--color-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing loops, slides or glides when the owner asks for less motion. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

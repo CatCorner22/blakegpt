@@ -1,0 +1,239 @@
+import { modelEndpoint, modelApiKey } from "./model-endpoint";
+import { assertSameSiteRequest } from "@/lib/auth/isolation.server";
+import { assertExpectedAccount } from "@/lib/auth/expected-account";
+import { DEV_USER_ID, authConfigured, getSessionUser } from "@/lib/auth/verify.server";
+import { requestIp } from "@/lib/request-ip.server";
+import { trustedClientIpHeaders } from "@/lib/client-ip";
+import { databaseConfigured, getSql } from "@/lib/db";
+import { reportServerError } from "@/lib/observability/report.server";
+import { loadEntitlements } from "@/lib/precog/firm/entitlements.server";
+import { checkDailyBudget, userDailyLimits, type AiPlan } from "./daily-usage";
+import {
+  modelChat,
+  type ModelChatOptions,
+  type ModelChatResult,
+  type ModelUsageLine,
+} from "./model-client.server";
+import { insertUsage } from "./usage-log.server";
+import { createAnonymousHeavyGate, LLM_LIMITS, SlidingWindowLimiter } from "./rate-limit";
+import { DailyLimitReached, type DailyLimitInfo, type ModelAccess } from "./types";
+import { RequestError } from "@/lib/request-errors";
+
+export type LlmAccess = {
+  userId: string | null;
+  model: ModelAccess;
+};
+
+class TooManyRequestsError extends RequestError {
+  readonly retryAfterMs: number;
+
+  constructor(retryAfterMs: number, message = "Too many requests — try again in a minute.") {
+    super(429, message);
+    this.name = "TooManyRequestsError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+export interface LlmAccessOptions {
+  /**
+   * The function does costly work on the server even without a model call
+   * (Pioneer's local analysis), so every caller is held to a per-minute
+   * allowance there, and signed-out callers to a much smaller one.
+   */
+  heavy?: boolean;
+  /**
+   * Local work only, such as the rules brief. Same-site and account checks
+   * still run. This call does not take a per-minute model slot.
+   */
+  unmetered?: boolean;
+  /** Local checks only: preserve request and account checks without using a model slot. */
+  deterministic?: boolean;
+}
+
+/**
+ * Who is calling and whether a model call may be made, checked before the
+ * function's input is parsed. In order: the same-site check, the per-address
+ * limit, the session (and, when the browser sent one, the account it expects),
+ * the heavy-path allowances, then the key, the sign-in, and the per-user and
+ * instance-wide minute limits. The persisted daily budget is not spent here:
+ * `callModel` spends it only when a model call is actually attempted.
+ */
+export async function resolveLlmAccess(
+  options: LlmAccessOptions = {},
+  expectedAccountId?: string,
+): Promise<LlmAccess> {
+  assertSameSiteRequest();
+  const ipKey = `ip:${requestIp()}`;
+  if (!options.deterministic) {
+    const ipResult = perIpLimiter.take(ipKey);
+    if (!ipResult.allowed) throw new TooManyRequestsError(ipResult.retryAfterMs, TRY_AGAIN);
+  }
+
+  let userId: string | null = null;
+  if (!authConfigured && !databaseConfigured) {
+    userId = DEV_USER_ID;
+  } else {
+    userId = (await getSessionUser())?.id ?? null;
+    // A tab that was signed in as one account never gets an answer, or spends
+    // a budget, under another.
+    if (expectedAccountId !== undefined) assertExpectedAccount(expectedAccountId, userId ?? "");
+  }
+  if (options.deterministic) return { userId, model: "not_configured" };
+
+  if (!options.unmetered && options.heavy && !userId) {
+    const anonymous = anonymousHeavyGate(ipKey);
+    if (!anonymous.allowed) {
+      throw new TooManyRequestsError(anonymous.retryAfterMs, SIGN_IN_OR_TRY_AGAIN);
+    }
+  }
+  // Taken for every signed-in caller, with or without a key, so the heavy
+  // local analysis is capped per account and not only per address.
+  const userResult = !options.unmetered && userId ? perUserLimiter.take(userId) : null;
+  const userAllowed = userResult?.allowed ?? true;
+  if (options.heavy && userResult && !userResult.allowed) {
+    throw new TooManyRequestsError(userResult.retryAfterMs, TRY_AGAIN);
+  }
+
+  if (!modelEndpoint()) return { userId, model: "not_configured" };
+  if (!userId) return { userId, model: "unauthenticated" };
+  if (!options.unmetered && !userAllowed) return { userId, model: "rate_limited" };
+  if (!options.unmetered && !globalLimiter.take("global").allowed)
+    return { userId, model: "rate_limited" };
+  return { userId, model: "allowed" };
+}
+
+/**
+ * The one way to call the model for a request the middleware allowed. Reads
+ * the caller's plan, then spends one unit of the persisted daily budget under
+ * it, so only an attempted model call is counted. Throws DailyLimitReached
+ * when today's budget is spent, naming the ceiling met. Returns null, and the
+ * caller uses its local answer, when the request may not call the model, the
+ * budget cannot be read (fails closed), or the upstream call fails.
+ *
+ * Every attempted call, answered or failed, is recorded in `llm_usage` (the
+ * tokens the API reported, no text) before this returns, so a function that
+ * freezes after answering cannot drop the row; a failed record is reported
+ * and never fails the answer.
+ */
+export async function callModel(
+  access: LlmAccess,
+  opts: ModelChatOptions,
+): Promise<ModelChatResult | null> {
+  if (access.model !== "allowed" || !access.userId || !modelEndpoint()) return null;
+  const apiKey = modelApiKey();
+  const { budget, plan } = await spendCallerDailyUnit(access.userId);
+  if (budget === "allowed") return recordedCall(access.userId, apiKey, opts);
+  if (budget === "unavailable") return null;
+  const { limit, paidLimit } = userDailyLimits(plan);
+  if (budget === "spent-global") await reportGlobalCeilingOnce();
+  throw new DailyLimitReached({ scope: CEILING_SCOPE[budget], plan, limit, paidLimit });
+}
+
+/**
+ * One daily unit for this caller, on the same plan and address `callModel`
+ * uses. A paid plan is not charged against the free cap.
+ */
+export async function spendCallerDailyUnit(userId: string): Promise<{
+  budget: Awaited<ReturnType<typeof checkDailyBudget>>;
+  plan: AiPlan;
+}> {
+  const plan = await aiPlanFor(userId);
+  return {
+    plan,
+    budget: await checkDailyBudget(getSql, userId, undefined, undefined, callerAddress(), plan),
+  };
+}
+
+/** The model call, then its record, awaited inside its own catch. */
+async function recordedCall(
+  userId: string,
+  apiKey: string,
+  opts: ModelChatOptions,
+): Promise<ModelChatResult | null> {
+  // One line per attempt: a platform that rejects the requested format is
+  // retried with a looser one, and each attempt is a call the API saw.
+  const lines: ModelUsageLine[] = [];
+  const keep = (line: ModelUsageLine) => {
+    lines.push(line);
+    opts.onUsage?.(line);
+  };
+  try {
+    return await modelChat(apiKey, { ...opts, onUsage: keep });
+  } finally {
+    for (const line of lines) {
+      try {
+        await insertUsage(await getSql(), {
+          // The local development account has no "user" row for the foreign key.
+          userId: userId === DEV_USER_ID ? null : userId,
+          feature: line.feature,
+          model: line.model,
+          promptTokens: line.promptTokens,
+          completionTokens: line.completionTokens,
+          outcome: line.outcome,
+        });
+      } catch (err) {
+        await reportServerError(err, "llm-usage");
+      }
+    }
+  }
+}
+
+/** The ceiling a refused budget names, by the budget's answer. */
+const CEILING_SCOPE = {
+  spent: "user",
+  "spent-pool": "pool",
+  "spent-global": "global",
+} as const satisfies Record<string, DailyLimitInfo["scope"]>;
+
+/**
+ * The AI allowance of the caller's plan (the firm's, for a firm member). An
+ * allowance that cannot be read counts as free, the smaller one, so a
+ * database fault never widens a budget.
+ */
+async function aiPlanFor(userId: string): Promise<AiPlan> {
+  try {
+    return (await loadEntitlements(await getSql(), userId)).aiPlan;
+  } catch (error) {
+    console.error("[llm] could not read the caller's plan; using the free allowance", error);
+    return "free";
+  }
+}
+
+/** The UTC day the global ceiling was last reported from this process, so one day reports once. */
+let globalCeilingReportedOn: string | null = null;
+
+/**
+ * The global ceiling is Precog's whole day of model calls spent, which the
+ * operator wants to hear about once, not on every refused call after it.
+ */
+async function reportGlobalCeilingOnce(): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  if (globalCeilingReportedOn === today) return;
+  globalCeilingReportedOn = today;
+  await reportServerError(new Error("llm global ceiling reached"), "llm-daily-global");
+}
+
+/** The calling address for the daily budget, or null outside a request. */
+/**
+ * The caller's address for the per-address daily ceiling, or null when no
+ * trusted header names it: behind an untrusted proxy every caller shares the
+ * proxy's address (or "unknown"), and one shared bucket would quietly become
+ * a second, smaller global ceiling.
+ */
+function callerAddress(): string | null {
+  if (trustedClientIpHeaders().length === 0) return null;
+  try {
+    const address = requestIp();
+    return address === "unknown" ? null : address;
+  } catch {
+    return null;
+  }
+}
+
+const TRY_AGAIN = "Too many requests — try again in a minute.";
+const SIGN_IN_OR_TRY_AGAIN = "Too many requests — sign in, or try again in a minute.";
+
+const perUserLimiter = new SlidingWindowLimiter(LLM_LIMITS.perUser);
+const perIpLimiter = new SlidingWindowLimiter(LLM_LIMITS.perIp);
+const globalLimiter = new SlidingWindowLimiter(LLM_LIMITS.global);
+const anonymousHeavyGate = createAnonymousHeavyGate();

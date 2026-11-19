@@ -1,0 +1,219 @@
+import { resolveTemplate, type TemplateSource } from "./active-template";
+import { MAX_BUSINESS_NAME } from "./business-id";
+import { isDemoName, type IndustryId } from "./industry";
+import { OWN_BUSINESS_FALLBACK_NAME, ownBusinessProfile } from "./onboarding/own-business";
+import { defaultDualReleasePolicy } from "./controls/dual-release";
+import { defaultProfile, hasUserWork, type PracticeProfile } from "./practice-profile";
+import { getIndustryTemplate } from "./templates";
+import { teamSource } from "./team-source";
+import type { Person, ProcessNode } from "./types";
+import type { SetupAnswers } from "./onboarding/setup-answers";
+import type { Plan } from "./firm/entitlements";
+import type { Tier } from "./firm/pricing";
+import type { OnboardingFacts } from "./onboarding/decision-model";
+
+export { teamSource, type TeamSource } from "./team-source";
+
+/**
+ * A business the owner adds. Its setup is not finished, so the setup dialog
+ * opens for it with the name and line of business already filled in; it
+ * never shows the sample's people under the owner's name.
+ */
+export function newBusinessProfile(industry: IndustryId, name?: string): PracticeProfile {
+  const fresh = defaultProfile(industry);
+  return {
+    ...fresh,
+    practiceName: name?.trim().slice(0, MAX_BUSINESS_NAME) || fresh.practiceName,
+    onboardingComplete: false,
+  };
+}
+
+/**
+ * Businesses one signed-in account may keep. The server refuses to create
+ * one more, and the app stops creating one locally at the same point instead
+ * of letting it fail to save to the account.
+ */
+export const MAX_BUSINESSES_PER_ACCOUNT = 50;
+
+const TIER_LABELS: Record<Tier, string> = { 1: "Starter", 2: "Practice", 3: "Firm" };
+
+/**
+ * What the owner is told when one more business is refused: by the account's
+ * hard ceiling (a number), or by the plan (free and the Assessment hold one
+ * client business; the Firm plan holds `limit`, its tier's number). A
+ * Starter or Practice firm is told to move up a tier: the firm owner in
+ * Manage billing, a member (`asMember`) by asking the owner. The Firm tier
+ * and a tier Precog does not know keep the plain limit text.
+ */
+export function businessLimitMessage(
+  input:
+    | number
+    | {
+        plan: Plan;
+        limit: number;
+        tier?: Tier | null;
+        asMember?: boolean;
+      } = MAX_BUSINESSES_PER_ACCOUNT,
+): string {
+  if (typeof input === "number") {
+    return `Your account already holds ${input} businesses, the most it can keep. Delete one you no longer need, then try again.`;
+  }
+  if (input.plan === "free") {
+    return "Precog keeps one business per account for free. The Firm plan holds 5, 20 or 50 client businesses by tier; start it on the Firm page.";
+  }
+  if (input.plan === "assessment") {
+    return "The Assessment covers one client business. The Firm plan holds 5, 20 or 50 by tier; start it on the Firm page.";
+  }
+  if (input.tier === 1 || input.tier === 2) {
+    const holds = `Your firm's ${TIER_LABELS[input.tier]} tier holds ${input.limit} client businesses.`;
+    return input.asMember
+      ? `${holds} Ask the firm owner to move up a tier, or to delete a client the firm no longer needs.`
+      : `${holds} Move up a tier in Manage billing on the Firm page, or delete a client you no longer need.`;
+  }
+  return `Your firm already holds ${input.limit} client businesses, the most it can keep. Delete one you no longer need, then try again.`;
+}
+
+/** True when a signed-in account already holds as many businesses as it may keep. */
+export function atBusinessLimit(businessCount: number): boolean {
+  return businessCount >= MAX_BUSINESSES_PER_ACCOUNT;
+}
+
+/**
+ * Setup finished with the owner's own team. The business always gets an id
+ * of its own: two tabs that both finished setup used to share the id of the
+ * unfinished business they had both loaded, and the second replaced the first.
+ */
+export function ownSetupProfile(input: {
+  industry: IndustryId;
+  practiceName: string;
+  people: Person[];
+  answers?: SetupAnswers;
+  onboardingFacts?: OnboardingFacts;
+}): PracticeProfile {
+  return {
+    ...ownBusinessProfile(
+      { ...defaultProfile(input.industry), decisions: [] },
+      { practiceName: input.practiceName, people: input.people, answers: input.answers },
+    ),
+    ...(input.onboardingFacts ? { onboardingFacts: input.onboardingFacts } : {}),
+    engagement: { startedAt: new Date().toISOString() },
+  };
+}
+
+/** Setup finished by loading the sample: also a business of its own. */
+export function sampleSetupProfile(
+  industry: IndustryId,
+  previous: PracticeProfile,
+): PracticeProfile {
+  return { ...defaultProfile(industry), decisions: previous.decisions, onboardingComplete: true };
+}
+
+/**
+ * What happens to the unfinished business a setup replaces. Normally it is
+ * only the sample behind the dialog and goes away. A copy saved by an older
+ * version of the app can hold real work with setup unfinished; that is kept
+ * as a business of its own rather than dropped.
+ */
+export function unfinishedBusinessToKeep(previous: PracticeProfile): PracticeProfile | null {
+  if (previous.onboardingComplete !== false) return null;
+  const sampleName = getIndustryTemplate(previous.industry).businessName;
+  return hasUserWork({ ...previous, practiceName: sampleName })
+    ? { ...previous, onboardingComplete: true }
+    : null;
+}
+
+/**
+ * True when `next` replaces the sample team with the owner's own people (a
+ * roster pasted into the sample), rather than editing the sample's people:
+ * none of the sample's people is left.
+ */
+export function replacesSampleTeam(
+  profile: Pick<PracticeProfile, "customPeople" | "industry">,
+  next: readonly Person[] | null,
+): boolean {
+  if (teamSource(profile) === "own" || !next || next.length === 0) return false;
+  const sampleIds = new Set(getIndustryTemplate(profile.industry).people.map((p) => p.id));
+  return !next.some((person) => sampleIds.has(person.id));
+}
+
+/**
+ * The owner's own people take over a business that started as the sample:
+ * the same clean slate setup gives. The sample's name gives way to a neutral
+ * one the owner is asked to change, the sample's control decisions (its
+ * supplier waiver) and its who-knows-what marks go, and the dual-release
+ * approver seats are read off the owner's people. The owner's own settings
+ * and exceptions stay.
+ */
+export function adoptOwnTeam(profile: PracticeProfile, people: Person[]): PracticeProfile {
+  const ownTemplate = resolveTemplate({ ...profile, customPeople: people, customRelations: [] });
+  const seats = defaultDualReleasePolicy(ownTemplate, profile.staff).rules;
+  const dualRelease = {
+    ...profile.dualRelease,
+    rules: profile.dualRelease.rules.map((rule) => {
+      const seat = seats.find((r) => r.channel === rule.channel);
+      return seat
+        ? {
+            ...rule,
+            firstApproverRoles: seat.firstApproverRoles,
+            secondApproverRoles: seat.secondApproverRoles,
+          }
+        : rule;
+    }),
+    exceptions: profile.dualRelease.exceptions.filter((e) => !e.sample),
+  };
+  return {
+    ...profile,
+    practiceName: ownBusinessName(profile) || OWN_BUSINESS_FALLBACK_NAME,
+    customPeople: people,
+    customRelations: [],
+    dualRelease,
+  };
+}
+
+/** The name the owner typed for a business, or "" while it still has a sample's name. */
+export function ownBusinessName(profile: Pick<PracticeProfile, "practiceName">): string {
+  return isDemoName(profile.practiceName) ? "" : profile.practiceName;
+}
+
+/** True when the owner's own business still carries the neutral name setup gave it. */
+export function needsOwnName(
+  profile: Pick<PracticeProfile, "practiceName" | "onboardingComplete">,
+): boolean {
+  return (
+    profile.onboardingComplete !== false && profile.practiceName === OWN_BUSINESS_FALLBACK_NAME
+  );
+}
+
+/**
+ * True when what a page prints describes a sample business rather than the
+ * owner's: the sample's people are in use, or no business is set up yet
+ * (the sample behind the setup dialog).
+ */
+export function isSampleBusiness(
+  profile: Pick<PracticeProfile, "customPeople" | "onboardingComplete">,
+): boolean {
+  return teamSource(profile) === "sample" || profile.onboardingComplete === false;
+}
+
+/**
+ * The business name a report prints. Until setup is finished the figures are
+ * the sample's, so they go out under the sample's name, never under a name
+ * the owner typed for a business not set up yet.
+ */
+export function printedBusinessName(
+  profile: Pick<PracticeProfile, "practiceName" | "industry" | "onboardingComplete">,
+): string {
+  return profile.onboardingComplete === false
+    ? getIndustryTemplate(profile.industry).businessName
+    : profile.practiceName;
+}
+
+/**
+ * The process map an edit starts from: the business's own map, or the
+ * template's with owners limited to people on this team. Seeding from the raw
+ * template saved the sample's owner ids (p1…p6) into an owner's map, where a
+ * later import holding those ids would have brought the sample's owners back.
+ */
+export function processesToEdit(source: TemplateSource): ProcessNode[] {
+  return source.customProcesses ?? resolveTemplate(source).processes;
+}

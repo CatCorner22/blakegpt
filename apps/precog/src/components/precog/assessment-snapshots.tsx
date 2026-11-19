@@ -1,0 +1,597 @@
+import { useWorkspace } from "@/lib/precog/workspace-context";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { Archive, Clock3, Download, RefreshCw, Save, Scale, Trash2, X } from "lucide-react";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { usePractice, useTemplate } from "@/lib/precog/practice-context";
+import {
+  createAssessmentSnapshot,
+  deleteAssessmentSnapshot,
+  getAssessmentSnapshot,
+  listAssessmentSnapshots,
+} from "@/lib/precog/snapshots";
+import type { AssessmentSnapshotSummary } from "@/lib/precog/snapshot-store";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildAssignments } from "@/lib/precog/sod/detect";
+import { resolveTemplate } from "@/lib/precog/active-template";
+import {
+  DEFAULT_VALUE_CASE,
+  normalizeValueCase,
+  type ValueCaseInputs,
+} from "@/lib/precog/value-case";
+import { normalizeValueEvidence, type ValueEvidence } from "@/lib/precog/value-evidence";
+import type { StorageLike } from "@/lib/precog/local-data";
+import {
+  compareAssessmentStates,
+  createSnapshotComparisonReport,
+} from "@/lib/precog/snapshot-comparison";
+import { formatSigned, formatUsdDelta } from "@/lib/utils";
+import { readValueProof, writeValueProof } from "@/lib/precog/value-proof-store";
+import { restoredProfile, snapshotSlice } from "@/lib/precog/snapshot-profile";
+import { downloadText } from "@/lib/download";
+import { localDateKey, formatDay, formatDayTime } from "@/lib/precog/dates";
+import { DEFAULT_BUSINESS_ID } from "@/lib/precog/business-id";
+import { buttonClass } from "@/components/ui/button-variants";
+
+/**
+ * `headingLevel` sets the view's own heading; card headings sit one level
+ * under it. The Snapshots tab uses 1; /firm mounts it under an h2 and passes 3.
+ */
+export function AssessmentSnapshots({ headingLevel = 1 }: { headingLevel?: 1 | 2 | 3 } = {}) {
+  const Heading = `h${headingLevel}` as const;
+  const cardHeading = `h${headingLevel + 1}` as "h2" | "h3" | "h4";
+  const workspace = useWorkspace();
+  const { profile, replaceProfile } = usePractice();
+  const businessId = profile.businessId ?? DEFAULT_BUSINESS_ID;
+  const tpl = useTemplate();
+  const { user, isPending } = useCurrentUserState();
+  const [title, setTitle] = useState("");
+  const [items, setItems] = useState<AssessmentSnapshotSummary[]>([]);
+  // A save, restore, compare or delete in flight; listing has its own flag so
+  // a refresh never reads as "Saving…" or disables the Save button.
+  const [busy, setBusy] = useState(false);
+  const [listing, setListing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Snapshots of the account's other businesses are listed only on request.
+  const [showAll, setShowAll] = useState(false);
+  const [comparison, setComparison] = useState<{
+    title: string;
+    createdAt: string;
+    result: ReturnType<typeof compareAssessmentStates>;
+  } | null>(null);
+
+  // Keyed on the id: the user object is rebuilt on every render, and a
+  // dependency on it re-requested the list without end.
+  const userId = user?.id;
+  const refresh = useCallback(async () => {
+    if (!userId) return;
+    setListing(true);
+    setError(null);
+    try {
+      setItems(await listAssessmentSnapshots());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load snapshots");
+    } finally {
+      setListing(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const ofThisBusiness = (item: AssessmentSnapshotSummary) =>
+    item.businessId ? item.businessId === businessId : item.practiceName === profile.practiceName;
+  const ownItems = items.filter(ofThisBusiness);
+  const otherCount = items.length - ownItems.length;
+  const listed = showAll ? items : ownItems;
+
+  async function save() {
+    if (!user) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // The map lives on the profile's people; capture it as the engines read it.
+      const powerMap = buildAssignments(tpl);
+      const { valueCase, evidence } = currentValueProof(businessId, workspace.local);
+      await createAssessmentSnapshot({
+        data: {
+          title: title.trim() || `${profile.practiceName} assessment`,
+          // What a snapshot keeps; map versions and logs stay behind.
+          profile: snapshotSlice(profile),
+          powerMap,
+          valueCase,
+          valueEvidence: evidence,
+        },
+      });
+      setTitle("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save snapshot");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    await refresh();
+  }
+
+  async function restore(item: AssessmentSnapshotSummary) {
+    const into = profile.practiceName;
+    const replaced =
+      "line of business, name, team, process map, register, controls, team figures, risk inputs, known leave, decisions and value proof";
+    const question = ofThisBusiness(item)
+      ? `Restore this snapshot into ${into}? Its ${replaced} replace what is there now. Saved maps, monthly reviews, and pay and sign-in checks for people who have left stay. Save a snapshot first if you want to keep what is there now.`
+      : `This snapshot is of ${item.practiceName}, not ${into}. Restoring it replaces ${into}'s ${replaced} with ${item.practiceName}'s. Saved maps, monthly reviews, and pay and sign-in checks for people who have left stay. Restore it into ${into} anyway?`;
+    if (!window.confirm(question)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const snapshot = await getAssessmentSnapshot({ data: { id: item.id } });
+      if (!snapshot) throw new Error("Snapshot no longer exists");
+      // The snapshot's business goes into this business: same id, its own
+      // map versions kept, and the saved power map written onto its people.
+      const restored = restoredProfile(snapshot, profile);
+      if (!restored) {
+        throw new Error(
+          "You saved this snapshot before Precog kept the team and process map in snapshots, so restoring it would replace your business with the sample. Compare still works.",
+        );
+      }
+      replaceProfile(restored);
+      const restoredValueCase = snapshot.valueCase ?? DEFAULT_VALUE_CASE;
+      const restoredEvidence = snapshot.valueEvidence ?? [];
+      // The Value proof tab takes the restored figures from this event even
+      // when the browser refuses to store them.
+      writeValueProof(
+        businessId,
+        { valueCase: restoredValueCase, evidence: restoredEvidence },
+        workspace.local,
+      );
+      window.dispatchEvent(
+        new CustomEvent("precog:value-proof-restored", {
+          detail: { valueCase: restoredValueCase, evidence: restoredEvidence },
+        }),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not restore snapshot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function compare(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const snapshot = await getAssessmentSnapshot({ data: { id } });
+      if (!snapshot) throw new Error("Snapshot no longer exists");
+      const currentMap = buildAssignments(tpl);
+      const current = currentValueProof(businessId, workspace.local);
+      setComparison({
+        title: snapshot.title,
+        createdAt: snapshot.createdAt,
+        result: compareAssessmentStates(
+          {
+            profile,
+            powerMap: currentMap,
+            valueCase: current.valueCase ?? DEFAULT_VALUE_CASE,
+            evidence: current.evidence ?? [],
+            asOf: new Date(),
+          },
+          {
+            profile: snapshot.profile,
+            powerMap: snapshot.powerMap ?? buildAssignments(resolveTemplate(snapshot.profile)),
+            valueCase: snapshot.valueCase ?? DEFAULT_VALUE_CASE,
+            evidence: snapshot.valueEvidence ?? [],
+            asOf: new Date(snapshot.createdAt),
+          },
+        ),
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not compare snapshot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm("Delete this snapshot? You cannot undo this.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteAssessmentSnapshot({ data: { id } });
+      setItems((current) => current.filter((item) => item.id !== id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete snapshot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Every snapshot the account holds, in full, as one JSON file the owner keeps. */
+  async function downloadAll() {
+    setBusy(true);
+    setError(null);
+    try {
+      const summaries = await listAssessmentSnapshots();
+      const snapshots = [];
+      for (const summary of summaries) {
+        const snapshot = await getAssessmentSnapshot({ data: { id: summary.id } });
+        if (snapshot) snapshots.push(snapshot);
+      }
+      downloadText(
+        `precog-snapshots-${localDateKey(new Date())}.json`,
+        `${JSON.stringify(
+          {
+            format: "precog-assessment-snapshots",
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            snapshots,
+          },
+          null,
+          2,
+        )}\n`,
+        "application/json",
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not download snapshots");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportComparison() {
+    if (!comparison) return;
+    const report = createSnapshotComparisonReport(
+      comparison.title,
+      comparison.createdAt,
+      comparison.result,
+    );
+    downloadText(
+      `precog-assessment-comparison-${localDateKey(new Date())}.md`,
+      report,
+      "text/markdown;charset=utf-8",
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <Heading className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+          <Archive className="size-5 text-primary" />
+          Preserve the decision record
+        </Heading>
+        <p className="mt-2 max-w-2xl text-sm text-muted">
+          Save a dated copy of this business: its team, process map, register, controls, risk
+          inputs, decisions, Duty assignments and value proof. Snapshots are private to your
+          account. Restore replaces those parts of the open business and keeps its saved maps and
+          logs.
+        </p>
+      </section>
+
+      {isPending ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted">Checking your account…</CardContent>
+        </Card>
+      ) : !user ? (
+        <Card>
+          <CardHeader>
+            <CardTitle as={cardHeading} className="text-base">
+              Sign in to preserve assessments
+            </CardTitle>
+            <CardDescription>
+              Your local working profile remains available without an account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link to="/login" className={buttonClass()}>
+              Sign in
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle as={cardHeading} className="text-base">
+                Create snapshot
+              </CardTitle>
+              <CardDescription>
+                Includes this business's team, process map, register, controls, risk inputs,
+                decisions, Duty assignments and value proof.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="block text-sm">
+                <span className="text-muted">Snapshot title</span>
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  maxLength={120}
+                  placeholder={`${profile.practiceName} · quarterly review`}
+                  className="mt-1 w-full rounded-lg border border-border bg-elevated px-3 py-2"
+                />
+              </label>
+              <div className="rounded-lg border border-border bg-elevated p-3 text-xs text-muted">
+                <p>{profile.practiceName}</p>
+                <p className="mt-1">
+                  Decisions logged: {profile.decisions.length} · profile updated{" "}
+                  {formatDay(profile.updatedAt)}
+                </p>
+              </div>
+              <Button onClick={save} disabled={busy}>
+                <Save className="size-4" /> {busy ? "Saving…" : "Save snapshot"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-start justify-between gap-3">
+              <div>
+                <CardTitle as={cardHeading} className="text-base">
+                  Snapshot history
+                </CardTitle>
+                <CardDescription>
+                  Newest first · up to 50 snapshots across your businesses
+                </CardDescription>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {items.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void downloadAll()}
+                    disabled={busy || listing}
+                  >
+                    <Download className="size-3.5" /> Download my snapshots
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void refresh()}
+                  disabled={busy || listing}
+                  aria-label="Refresh snapshots"
+                >
+                  <RefreshCw className={`size-3.5 ${listing ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {comparison && (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="flex items-center gap-2 text-sm font-semibold">
+                      <Scale className="size-4 text-primary" />
+                      Change since “{comparison.title}”
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={exportComparison}
+                        aria-label="Export comparison"
+                        className="rounded p-1 text-muted hover:text-fg"
+                      >
+                        <Download className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setComparison(null)}
+                        aria-label="Close comparison"
+                        className="rounded p-1 text-muted hover:text-fg"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-subtle">
+                    Comparing the current workspace with the assessment saved{" "}
+                    {formatDayTime(comparison.createdAt)}.
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                    <CompareMetric
+                      label="Team size"
+                      value={formatSigned(comparison.result.teamSizeDelta)}
+                    />
+                    <CompareMetric
+                      label="Risk inputs changed"
+                      value={String(comparison.result.riskChanges)}
+                    />
+                    <CompareMetric
+                      label="Duties assigned"
+                      value={String(comparison.result.grants)}
+                    />
+                    <CompareMetric
+                      label="Duties revoked"
+                      value={String(comparison.result.revocations)}
+                    />
+                    <CompareMetric
+                      label="People added and removed"
+                      value={`${comparison.result.hires} added, ${comparison.result.removals} removed`}
+                    />
+                    <CompareMetric
+                      label="Net observed value"
+                      value={
+                        comparison.result.netObservedValueDelta === null
+                          ? "Not yet observed"
+                          : formatUsdDelta(comparison.result.netObservedValueDelta)
+                      }
+                    />
+                    <CompareMetric
+                      label="Verified evidence"
+                      value={formatSigned(comparison.result.verifiedEvidenceDelta)}
+                    />
+                    <CompareMetric
+                      label="Evidence readiness"
+                      value={`${formatSigned(comparison.result.evidenceReadinessDelta)} pts`}
+                    />
+                    <CompareMetric
+                      label="Verified recoveries"
+                      value={formatUsdDelta(comparison.result.verifiedRecoveryDelta)}
+                    />
+                  </div>
+                  {comparison.result.assignmentChanges.length > 0 && (
+                    <div className="mt-3 border-t border-primary/20 pt-3">
+                      <p className="text-xs font-medium uppercase tracking-wider text-subtle">
+                        Responsibility changes
+                      </p>
+                      <div className="mt-2 space-y-1.5">
+                        {comparison.result.assignmentChanges.slice(0, 6).map((change) => (
+                          <div
+                            key={change.id}
+                            className="flex items-center justify-between gap-3 text-xs"
+                          >
+                            <span className="min-w-0 truncate text-muted">
+                              {change.personName} · {change.dutyLabel ?? change.role}
+                            </span>
+                            <Badge
+                              variant={
+                                change.kind === "duty_granted" || change.kind === "person_added"
+                                  ? "primary"
+                                  : "default"
+                              }
+                            >
+                              {change.kind.replaceAll("_", " ")}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                      {comparison.result.assignmentChanges.length > 6 && (
+                        <p className="mt-2 text-xs text-subtle">
+                          +{comparison.result.assignmentChanges.length - 6} additional changes
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {comparison.result.riskVariableChanges.length > 0 && (
+                    <div className="mt-3 border-t border-primary/20 pt-3">
+                      <p className="text-xs font-medium uppercase tracking-wider text-subtle">
+                        Risk-input changes
+                      </p>
+                      <div className="mt-2 space-y-1.5">
+                        {comparison.result.riskVariableChanges.slice(0, 6).map((change) => (
+                          <div
+                            key={change.key}
+                            className="flex items-center justify-between gap-3 text-xs"
+                          >
+                            <span className="text-muted">{change.label}</span>
+                            <span className="tabular text-fg">
+                              {change.beforeText} → {change.afterText}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {comparison.result.riskVariableChanges.length > 6 && (
+                        <p className="mt-2 text-xs text-subtle">
+                          +{comparison.result.riskVariableChanges.length - 6} additional changes
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger"
+                >
+                  {error}
+                </p>
+              )}
+              {!listing && listed.length === 0 && (
+                <p className="text-sm text-muted">No saved assessments of this business yet.</p>
+              )}
+              {otherCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll((v) => !v)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {showAll
+                    ? "Show only this business's snapshots"
+                    : `Show snapshots of your other businesses (${otherCount})`}
+                </button>
+              )}
+              {listed.map((item) => (
+                <div key={item.id} className="rounded-xl border border-border bg-elevated p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{item.title}</p>
+                      <p className="mt-1 flex items-center gap-1 text-xs text-muted">
+                        <Clock3 className="size-3" /> {item.practiceName} ·{" "}
+                        {formatDayTime(item.createdAt)}
+                      </p>
+                      {item.includesPowerMap && (
+                        <Badge className="mt-2">Duty assignments included</Badge>
+                      )}
+                      {item.includesValueProof && (
+                        <Badge className="mt-2 ml-1">Value proof included</Badge>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void compare(item.id)}
+                        disabled={busy}
+                        aria-label={`Compare with ${item.title}`}
+                      >
+                        Compare
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void restore(item)}
+                        disabled={busy}
+                        aria-label={`Restore ${item.title}`}
+                      >
+                        Restore
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void remove(item.id)}
+                        disabled={busy}
+                        aria-label={`Delete ${item.title}`}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * This business's value proof as the engines read it. Unreadable or blocked
+ * storage gives none rather than failing a snapshot; the browser-wide figures
+ * of older versions are left for the Value proof tab to claim.
+ */
+function currentValueProof(
+  businessId: string,
+  storage: StorageLike | null,
+): { valueCase?: ValueCaseInputs; evidence?: ValueEvidence[] } {
+  const stored = readValueProof(businessId, storage, { claimLegacy: false });
+  return {
+    valueCase:
+      stored.valueCase && typeof stored.valueCase === "object"
+        ? normalizeValueCase(stored.valueCase as Partial<ValueCaseInputs>)
+        : undefined,
+    evidence: stored.evidence === undefined ? undefined : normalizeValueEvidence(stored.evidence),
+  };
+}
+
+function CompareMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-bg p-2">
+      <p className="text-subtle">{label}</p>
+      <p className="mt-1 font-semibold tabular text-fg">{value}</p>
+    </div>
+  );
+}

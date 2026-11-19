@@ -1,0 +1,97 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runModelAgentLoop, type LocalAgentRun } from "./agent-loop";
+import { callModel } from "./guard.server";
+
+vi.mock("./guard.server", () => ({ callModel: vi.fn() }));
+const access = { userId: "fixture-owner", model: "allowed" as const };
+const local: LocalAgentRun = {
+  source: "local-agent",
+  question: "What do I check first?",
+  steps: [],
+  toolsUsed: ["get_case_evidence"],
+  contextFingerprint: "fixture",
+  latencyMs: 1,
+  toolResults: [
+    {
+      tool: "get_case_evidence",
+      ok: true,
+      summary: "Population statistics only",
+      data: { tipDetectionPercent: 43, investigatedMedianLossUsd: 104000 },
+    },
+  ],
+  brief: {
+    situation: "A payment destination changed; its legitimacy is not established.",
+    highestRisks: [],
+    tradeoffs: [],
+    decisions: [
+      {
+        action: "Verify the changed payment destination",
+        rationale:
+          "Use a previously known contact before any payment. Coverage has not been established.",
+        evidenceIds: ["ev-1"],
+        effort: "low",
+        horizonDays: 1,
+      },
+    ],
+    frontierNextMove: "Record the verification.",
+    chickenLittleWarnings: ["Do not treat a population statistic as this business's probability."],
+    variableCascades: [],
+    specialistNotes: [],
+    markdown:
+      "## Situation\nA payment destination changed.\n\n## Recommended moves\n1. **Verify the changed payment destination**: Use a previously known contact before any payment. Coverage has not been established.\n\n## Warnings\nCoverage is not established.\n\nPopulation evidence, not this business's probability.",
+    evidence: [{ id: "ev-1", kind: "sod", label: "Payment-change check", link: { tab: "sod" } }],
+  },
+};
+const answer = (text: string) => {
+  vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
+  vi.mocked(callModel).mockResolvedValue({ text, model: "fixture-model" });
+  return runModelAgentLoop(local, access);
+};
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+});
+
+describe("model output cannot reassign a real number to an invented claim", () => {
+  it.each([
+    "Your business has a 43% annual probability of fraud.",
+    "Your guaranteed insurance reimbursement is $104,000.",
+    "Your employee stole money. Release the changed payment now.",
+  ])("withholds unsupported model prose: %s", async (text) => {
+    const result = await answer(text);
+    expect(result.source).toBe("local-agent");
+    expect(result.modelStatus).toBe("rejected");
+    expect(result.brief).toEqual(local.brief);
+    expect(result.brief.markdown).not.toContain(text);
+  });
+  it("renders selected claims only from the complete local statement", async () => {
+    const result = await answer(JSON.stringify({ version: 1, highlightIds: ["move-0"] }));
+    expect(result.modelStatus).toBe("answered");
+    expect(vi.mocked(callModel).mock.calls[0]?.[1].jsonObject).toBe(true);
+    expect(result.highlightIds).toEqual(["move-0"]);
+    expect(result.brief.markdown).toBe(local.brief.markdown);
+    expect(result.brief.markdown).not.toContain("Most relevant");
+    expect(result.brief.decisions).toEqual(local.brief.decisions);
+  });
+  it.each([
+    { version: 1, highlightIds: ["not-in-this-brief"] },
+    { version: 1, highlightIds: ["move-0", "move-0"] },
+    { version: 1, highlightIds: ["move-0"], markdown: "Guaranteed $104,000 recovery" },
+    { version: 2, highlightIds: ["move-0"] },
+  ])("rejects unknown, duplicate or extended plans: %j", async (plan) => {
+    const result = await answer(JSON.stringify(plan));
+    expect(result.modelStatus).toBe("rejected");
+    expect(result.brief).toEqual(local.brief);
+  });
+  it("accepts an empty selection as an answer that marks nothing", async () => {
+    const result = await answer(JSON.stringify({ version: 1, highlightIds: [] }));
+    expect(result.modelStatus).toBe("answered");
+    expect(result.highlightIds).toEqual([]);
+    expect(result.brief).toEqual(local.brief);
+  });
+  it("does not mutate the local brief", async () => {
+    const before = structuredClone(local);
+    await answer(JSON.stringify({ version: 1, highlightIds: ["move-0"] }));
+    expect(local).toEqual(before);
+  });
+});

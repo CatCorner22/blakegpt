@@ -1,0 +1,104 @@
+import { useMemo } from "react";
+import { authClient, authEnabled } from "./client";
+
+/** Normalized user shape used across the app, auth on or off. */
+type AppUser = {
+  id: string;
+  displayName: string | null;
+  primaryEmail: string | null;
+  profileImageUrl: string | null;
+  /** True when this is the development fallback (auth not configured). */
+  isDevFallback: boolean;
+};
+
+/**
+ * Stable fallback user, used only when auth is explicitly disabled
+ * (`VITE_AUTH_ENABLED=false`). Its id is `"dev-user"`, the same id
+ * `verify.server.ts` returns server-side, so per-user rows belong to one owner.
+ */
+const DEV_USER: AppUser = {
+  id: "dev-user",
+  displayName: "Dev User",
+  primaryEmail: "dev@example.com",
+  profileImageUrl: null,
+  isDevFallback: true,
+};
+
+/** `useCurrentUserState()` result: the user plus the session-loading flag. */
+type CurrentUserState = {
+  /** The user — `null` BOTH while the session loads and when signed out. */
+  user: AppUser | null;
+  /** True while the session is still resolving — don't treat `user: null` as signed out yet. */
+  isPending: boolean;
+  /**
+   * True while a session request runs after the first one (window refocus,
+   * back online, another tab's sign-in or sign-out). `isPending` is also true
+   * during a guest's refetch, so tell the first load apart with this.
+   */
+  isRefetching: boolean;
+  /** Why the last session request failed (a network error or a refusal), or null. */
+  error: unknown;
+};
+
+/**
+ * Current user + loading state:
+ *   - Auth enabled (default) -> the real signed-in user; `user` is `null` while
+ *                            the session resolves (`isPending: true`) and when
+ *                            signed out (`isPending: false`). Session comes from
+ *                            Better Auth `useSession()` → `/api/auth/get-session`.
+ *   - Auth disabled (`VITE_AUTH_ENABLED=false`) -> `DEV_USER`, never pending.
+ *
+ * Protect a route by waiting out `isPending` before acting on `user` —
+ * redirecting on `user: null` alone bounces signed-in visitors to sign-in on
+ * every hard reload:
+ *
+ *   const { user, isPending } = useCurrentUserState();
+ *   if (isPending) return null;                          // still resolving — don't redirect yet
+ *   if (!user) return <Navigate to="/login" />;          // definitely signed out
+ *
+ * `authEnabled` is a module-level constant fixed at load, so the implementation
+ * is chosen once and keeps a stable hook order across every render.
+ */
+export const useCurrentUserState: () => CurrentUserState = authEnabled
+  ? useSessionUserState
+  : useDevUserState;
+
+function useDevUserState(): CurrentUserState {
+  return { user: DEV_USER, isPending: false, isRefetching: false, error: null };
+}
+
+/**
+ * The signed-in user, the same object from one render to the next while its
+ * fields stay the same: an effect keyed on `user` then runs once per account,
+ * not on every render (a session refetch builds a new `data.user`).
+ */
+function useSessionUserState(): CurrentUserState {
+  const { data, isPending, isRefetching, error } = authClient.useSession();
+  const id = data?.user?.id ?? null;
+  const name = data?.user?.name ?? null;
+  const email = data?.user?.email ?? null;
+  const image = data?.user?.image ?? null;
+  const user = useMemo<AppUser | null>(
+    () =>
+      id
+        ? {
+            id,
+            displayName: name,
+            primaryEmail: email,
+            profileImageUrl: image,
+            isDevFallback: false,
+          }
+        : null,
+    [id, name, email, image],
+  );
+  return { user, isPending, isRefetching, error: error ?? null };
+}
+
+/**
+ * Convenience view of `useCurrentUserState().user` for display (e.g.
+ * `user?.displayName ?? "Guest"`). NOTE: `null` means *loading OR signed out* —
+ * for redirects/guards use `useCurrentUserState()` and check `isPending`.
+ */
+export function useCurrentUser(): AppUser | null {
+  return useCurrentUserState().user;
+}

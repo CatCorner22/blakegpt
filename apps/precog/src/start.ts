@@ -1,0 +1,68 @@
+import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
+import { createSerializationAdapter } from "@tanstack/react-router";
+import { RequestError } from "@/lib/request-errors";
+
+/**
+ * Carries a refusal's status to the browser. Start's own error adapter keeps
+ * only the message, so without this a 401 or 403 arrives as a plain Error and
+ * the screens retry it like a network failure instead of asking for a sign-in.
+ */
+export const requestErrorAdapter = createSerializationAdapter({
+  key: "precog/RequestError",
+  test: (value): value is RequestError => value instanceof RequestError,
+  toSerializable: (error) => ({ status: error.status, message: error.message }),
+  fromSerializable: ({ status, message }) => new RequestError(status, message),
+});
+
+/**
+ * The framework's default protection, restated: declaring a start instance
+ * replaces the default request middleware, so CSRF must be listed here.
+ */
+const csrfMiddleware = createCsrfMiddleware({
+  filter: (ctx) => ctx.handlerType === "serverFn",
+});
+
+/**
+ * Server-function requests: refuse oversized bodies (413) and bodies the
+ * framework cannot parse (400) before any function, auth check included,
+ * does work, and answer an unknown function id with 404 rather than 500.
+ */
+const serverFnRequestGuard = createMiddleware().server(async ({ request, handlerType, next }) => {
+  if (handlerType !== "serverFn") return next();
+  const { checkServerFnRequest, isUnknownServerFnError, plainResponse } =
+    await import("@/lib/server-fn-guard");
+  const refused = await checkServerFnRequest(request);
+  if (refused) return refused;
+  try {
+    return await next();
+  } catch (error) {
+    if (isUnknownServerFnError(error)) return plainResponse(404, "Not found");
+    throw error;
+  }
+});
+
+/**
+ * Gives a thrown error that names a 4xx status that HTTP status (see
+ * server-fn-status.server.ts). Anything else is a failure of ours, so it goes
+ * to the error tracker before the client hears about it.
+ */
+const clientErrorStatusMiddleware = createMiddleware({ type: "function" }).server(
+  async ({ next }) => {
+    try {
+      return await next();
+    } catch (error) {
+      const { applyClientErrorStatus } = await import("@/lib/server-fn-status.server");
+      if (!applyClientErrorStatus(error)) {
+        const { reportServerError } = await import("@/lib/observability/report.server");
+        await reportServerError(error, "server-fn");
+      }
+      throw error;
+    }
+  },
+);
+
+export const startInstance = createStart(() => ({
+  serializationAdapters: [requestErrorAdapter],
+  requestMiddleware: [csrfMiddleware, serverFnRequestGuard],
+  functionMiddleware: [clientErrorStatusMiddleware],
+}));

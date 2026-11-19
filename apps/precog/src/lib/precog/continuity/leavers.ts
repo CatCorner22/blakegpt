@@ -1,0 +1,343 @@
+import type { DecisionEntry } from "../practice-profile";
+import { continuityCommitments, continuityStepKey } from "../decisions/follow-through";
+import type { IndustryTemplate } from "../templates";
+import type { KnowledgeItem, KnowledgeLevel, Person } from "../types";
+import { absenceImpact, type AbsenceAction } from "./absence-impact";
+import type { DetectedConflict } from "../sod/detect";
+import type { StandInConflicts } from "./standin-conflicts";
+import { daysBetween, isCalendarDate, formatDay, formatDayRange } from "../dates";
+import { relationLevel, STRONG_LEVELS } from "./coverage";
+import { documentationState, isWritten } from "./documentation";
+import { firstName, joinWithAnd, quoted } from "../text";
+
+/** A hand-off with this many days or fewer left is urgent. */
+export const HANDOVER_URGENT_DAYS = 7;
+
+export interface HandoverItem {
+  item: KnowledgeItem;
+  /** Who takes it over: the best remaining learner or cross-training candidate, if anyone. */
+  successor: Person | null;
+  /** The successor's level on the register today. */
+  successorLevel: KnowledgeLevel | undefined;
+  /** Why this successor, or why there is none. */
+  note: string;
+  /** Duty conflicts the successor would newly hold by taking this over; empty without a checker. */
+  conflicts: DetectedConflict[];
+  /** Open cross-training step already logged for this item. */
+  training: DecisionEntry | null;
+  /** Open write-it-down or locate step already logged for this item. */
+  documenting: DecisionEntry | null;
+}
+
+export interface Leaver {
+  person: Person;
+  /** False while nobody is marked on the register: the hand-off cannot be worked out yet. */
+  assessed: boolean;
+  lastDay: string;
+  /** Days until the last day: 0 on the day itself, negative once it has passed. */
+  daysLeft: number;
+  /** "notice" while they are still working; "gone" once the last day has passed and they are still marked active. */
+  status: "notice" | "gone";
+  /** Register entries only this person can run alone — what has to be handed over. */
+  handover: HandoverItem[];
+  /** Entries they hold that someone else can already run alone. */
+  shared: KnowledgeItem[];
+  /** Processes where they are the only listed owner. */
+  orphanedProcesses: string[];
+  remaining: Person[];
+  /** 0–100 share of must-do work that leaves with them today (same weighted index as PersonLoad.dependence). */
+  dependence: number;
+  /** Hand-off items with no cross-training step in the Journal yet. */
+  unlogged: number;
+  actions: AbsenceAction[];
+}
+
+/** The date to have hand-off steps done by: the last day, or today once it has passed. */
+export function handoverDeadline(leaver: Pick<Leaver, "lastDay">, today: string): string {
+  return leaver.lastDay < today ? today : leaver.lastDay;
+}
+
+/**
+ * Everyone active with a last day recorded, soonest first: what only they can
+ * run, who should pick each entry up, and what is already in the Journal.
+ * People marked inactive have left and are not listed. Pure.
+ *
+ * Coverage is judged as of each person's last day, with everyone whose last
+ * day falls on or before it already gone: two people who share payroll and
+ * both resign each get payroll on their hand-off list, pointed at someone
+ * who is staying, rather than each counting the other as cover.
+ *
+ * A successor who is leaving later is passed over for someone who is staying
+ * when there is one; when there is not, they stay the successor with a note
+ * saying when they go, and the entry is on their own hand-off list too.
+ */
+export function leavers(
+  tpl: IndustryTemplate,
+  decisions: readonly DecisionEntry[],
+  today: string,
+  conflictsFor?: StandInConflicts,
+): Leaver[] {
+  if (!isCalendarDate(today)) return [];
+  const committed = continuityCommitments(decisions, tpl, today);
+  const departing = tpl.people.filter(
+    (p): p is Person & { lastDay: string } =>
+      p.active && typeof p.lastDay === "string" && isCalendarDate(p.lastDay),
+  );
+  // Who would stand in with everyone who has given notice gone: the
+  // successor to prefer over one who is leaving later.
+  const allGone =
+    departing.length > 1
+      ? absenceImpact(
+          tpl,
+          departing.map((o) => o.id),
+          conflictsFor,
+        )
+      : null;
+  const leavesAfter = (successor: Person | null, lastDay: string) =>
+    successor ? departing.find((o) => o.id === successor.id && o.lastDay > lastDay) : undefined;
+  // What stops on each person's last day, with everyone gone by then.
+  const asOf = new Map(
+    departing.map((person) => [
+      person.id,
+      absenceImpact(
+        tpl,
+        departing.filter((o) => o.id === person.id || o.lastDay <= person.lastDay).map((o) => o.id),
+        conflictsFor,
+      ),
+    ]),
+  );
+  const out: Leaver[] = [];
+  for (const person of departing) {
+    const daysLeft = daysBetween(today, person.lastDay);
+    if (daysLeft === null) continue;
+    const impact = asOf.get(person.id);
+    const own = absenceImpact(tpl, [person.id]);
+    if (!impact || !own) continue;
+    const holdsAlone = (itemId: string) =>
+      STRONG_LEVELS.has(relationLevel(tpl.relations, person.id, itemId) ?? "aware");
+    const owns = new Set(
+      tpl.processes.filter((p) => (p.ownerPersonIds ?? []).includes(person.id)).map((p) => p.name),
+    );
+    // An entry an earlier leaver hands to this person leaves with them too,
+    // even when they only have the basics.
+    const successorTo = (itemId: string) =>
+      departing.some(
+        (o) =>
+          o.id !== person.id &&
+          o.lastDay <= person.lastDay &&
+          STRONG_LEVELS.has(relationLevel(tpl.relations, o.id, itemId) ?? "aware") &&
+          successorFor(o, itemId)?.id === person.id,
+      );
+    const successorFor = (leaver: Person & { lastDay: string }, itemId: string) => {
+      const stop = asOf.get(leaver.id)?.stops.find((s) => s.item.id === itemId);
+      return stop ? pickSuccessor(stop, leaver.lastDay).standIn : null;
+    };
+    const pickSuccessor = (stop: (typeof impact.stops)[number], lastDay: string) => {
+      const later = leavesAfter(stop.standIn, lastDay);
+      if (!later) return stop;
+      const staying = allGone?.stops.find((s) => s.item.id === stop.item.id);
+      if (staying?.standIn) return staying;
+      return {
+        ...stop,
+        note: `${stop.note} ${firstName(later.name)} leaves on ${formatDay(later.lastDay)} too; line up someone to take it on after that.`,
+      };
+    };
+    const handover: HandoverItem[] = impact.stops
+      .filter((s) => holdsAlone(s.item.id) || successorTo(s.item.id))
+      .map((stop) => pickSuccessor(stop, person.lastDay))
+      .map((s) => ({
+        item: s.item,
+        successor: s.standIn,
+        successorLevel: s.standIn
+          ? relationLevel(tpl.relations, s.standIn.id, s.item.id)
+          : undefined,
+        note: s.note,
+        conflicts: s.conflicts,
+        training: committed.get(continuityStepKey(s.item.id, "cover"))?.decision ?? null,
+        documenting:
+          committed.get(continuityStepKey(s.item.id, "document"))?.decision ??
+          committed.get(continuityStepKey(s.item.id, "locate"))?.decision ??
+          null,
+      }));
+    const orphanedProcesses = impact.orphanedProcesses.filter((n) => owns.has(n));
+    out.push({
+      person,
+      assessed: impact.assessed,
+      lastDay: person.lastDay,
+      daysLeft,
+      status: daysLeft < 0 ? "gone" : "notice",
+      handover,
+      shared: impact.continues.filter((i) => holdsAlone(i.id)),
+      orphanedProcesses,
+      remaining: impact.remaining,
+      dependence: own.dependence,
+      unlogged: handover.filter((h) => !h.training).length,
+      actions: handoverActions(
+        person,
+        handover,
+        orphanedProcesses,
+        impact.remaining,
+        impact.assessed,
+      ),
+    });
+  }
+  return out.sort((a, b) => a.daysLeft - b.daysLeft || b.dependence - a.dependence);
+}
+
+function handoverActions(
+  person: Person,
+  handover: HandoverItem[],
+  orphanedProcesses: string[],
+  remaining: Person[],
+  assessed: boolean,
+): AbsenceAction[] {
+  const first = firstName(person.name);
+  const actions: AbsenceAction[] = [];
+  if (!assessed)
+    actions.push({
+      text: `The register does not mark anyone yet, so Precog cannot tell what leaves with ${first}. Mark who can do each item before ${first}'s last day.`,
+      step: "cover",
+      knowledgeIds: [],
+    });
+  const ids = (list: HandoverItem[]) => list.map((h) => h.item.id);
+  const names = (list: HandoverItem[], max: number) =>
+    joinWithAnd(
+      list.map((h) => quoted(h.item.name)),
+      max,
+    );
+
+  const trainable = handover.filter((h) => h.successor);
+  if (trainable.length)
+    actions.push({
+      text: `Train the successor before ${first} goes: ${joinWithAnd(
+        trainable.map((h) => `${h.successor?.name} on ${quoted(h.item.name)}`),
+        3,
+      )}.`,
+      step: "cover",
+      knowledgeIds: ids(trainable),
+    });
+  const nobody = handover.filter((h) => !h.successor);
+  if (nobody.length)
+    actions.push({
+      text:
+        remaining.length === 0
+          ? `Nobody else is on the team to take ${names(nobody, 2)} — hire or line up an outside provider before ${first} goes.`
+          : `Nobody remaining has touched ${names(nobody, 2)} — decide who takes it on, or line up an outside provider, before ${first} goes.`,
+      step: "cover",
+      knowledgeIds: ids(nobody),
+    });
+  const undocumented = handover.filter((h) => !isWritten(h.item));
+  if (undocumented.length)
+    actions.push({
+      text: `Have ${first} write down ${names(undocumented, 3)} while ${first} is still here.`,
+      step: "document",
+      knowledgeIds: ids(undocumented),
+    });
+  const unlocated = handover.filter((h) => documentationState(h.item) === "unlocated");
+  if (unlocated.length)
+    actions.push({
+      text: `Record where the written procedure for ${names(unlocated, 3)} lives — after ${first} goes, nobody can ask.`,
+      step: "locate",
+      knowledgeIds: ids(unlocated),
+    });
+  if (orphanedProcesses.length)
+    actions.push({
+      text: `Name a new owner on ${joinWithAnd(orphanedProcesses.map(quoted), 3)}.`,
+      step: "cover",
+      knowledgeIds: [],
+    });
+  if (!actions.length)
+    actions.push({
+      text: `Nothing on the register leaves with ${first}; someone else can already run everything ${first} does.`,
+      step: "cover",
+      knowledgeIds: [],
+    });
+  return actions;
+}
+
+/** "leaves in 12 days", "leaves tomorrow", "last day today", "left 3 days ago". */
+export function leaverLead(daysLeft: number): string {
+  if (daysLeft === 0) return "last day today";
+  if (daysLeft === 1) return "leaves tomorrow";
+  if (daysLeft > 1) return `leaves in ${daysLeft} days`;
+  return daysLeft === -1 ? "left yesterday" : `left ${-daysLeft} days ago`;
+}
+
+/** "Maya leaves in 12 days (last day 14 Oct): 3 entries only she can run — train Chris on PMS admin, …" */
+export function describeLeaver(l: Leaver): string {
+  const first = firstName(l.person.name);
+  const when = `${first} ${leaverLead(l.daysLeft)} (last day ${formatDayRange(l.lastDay, l.lastDay)})`;
+  if (l.status === "gone") {
+    const n = l.handover.length;
+    return `${when} and Precog still counts them as on the team — mark ${first} as left${
+      n > 0
+        ? ` so the register stops relying on ${first} for ${n} ${n === 1 ? "entry" : "entries"}`
+        : ""
+    }.`;
+  }
+  if (!l.assessed && l.orphanedProcesses.length === 0) {
+    return `${when}: the register does not mark anyone yet, so Precog cannot tell what leaves with ${first}.`;
+  }
+  if (l.handover.length === 0 && l.orphanedProcesses.length === 0) {
+    return `${when}: nothing on the register leaves with ${first}.`;
+  }
+  const n = l.handover.length;
+  const named = l.handover.filter((h) => h.successor).slice(0, 2);
+  const nobody = l.handover.filter((h) => !h.successor);
+  const parts = [
+    ...named.map((h) => `train ${firstName(h.successor?.name ?? "")} on ${h.item.name}`),
+    ...(nobody.length
+      ? [
+          `${nobody.map((h) => h.item.name).join(", ")} ${nobody.length === 1 ? "has" : "have"} no one to take over`,
+        ]
+      : []),
+    ...(l.orphanedProcesses.length
+      ? [
+          `${l.orphanedProcesses.length} process${l.orphanedProcesses.length === 1 ? "" : "es"} need${l.orphanedProcesses.length === 1 ? "s" : ""} a new owner`,
+        ]
+      : []),
+  ];
+  const stops =
+    n === 0 ? "" : `${n} register ${n === 1 ? "entry" : "entries"} only ${first} can run alone`;
+  return `${when}: ${[stops, ...parts].filter(Boolean).join(" — ")}${
+    l.unlogged > 0 && n > 0
+      ? `; ${l.unlogged === n ? "none" : `${n - l.unlogged} of ${n}`} recorded in the Decisions log`
+      : ""
+  }.`;
+}
+
+/** Record or clear a person's last day on the team list; other people untouched. */
+export function setLastDay(
+  people: readonly Person[],
+  personId: string,
+  lastDay: string | null,
+): Person[] {
+  return people.map((p) =>
+    p.id !== personId
+      ? p
+      : lastDay
+        ? { ...p, lastDay }
+        : (({ lastDay: _lastDay, ...rest }) => rest)(p),
+  );
+}
+
+/** Whether a person's last day has passed, so they can be marked as left. */
+export function canMarkLeft(person: Pick<Person, "lastDay">, today: string): boolean {
+  return (
+    typeof person.lastDay === "string" &&
+    isCalendarDate(person.lastDay) &&
+    isCalendarDate(today) &&
+    person.lastDay < today
+  );
+}
+
+/**
+ * They have left: kept on the list for history, dropped from coverage. Only
+ * applies once the recorded last day is in the past — someone still working
+ * their notice stays counted as cover, so this is a no-op until then.
+ */
+export function markLeft(people: readonly Person[], personId: string, today: string): Person[] {
+  return people.map((p) =>
+    p.id === personId && canMarkLeft(p, today) ? { ...p, active: false } : p,
+  );
+}

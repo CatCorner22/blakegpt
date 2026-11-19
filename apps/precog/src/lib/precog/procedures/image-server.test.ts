@@ -1,0 +1,108 @@
+import { describe, expect, it } from "vitest";
+import { RequestError } from "@/lib/request-errors";
+import {
+  parseUploadInput,
+  storeUploadFor,
+  takeUploadAllowance,
+  UPLOADS_PER_MINUTE,
+} from "./image-server";
+import { SlidingWindowLimiter } from "../llm/rate-limit";
+
+const valid = {
+  expectedAccountId: "u1",
+  businessId: "biz_1",
+  contentType: "image/png",
+  data: "iVBORw0KGgo=",
+};
+
+describe("upload request", () => {
+  it("accepts a well-formed upload", () => {
+    expect(parseUploadInput(valid)).toEqual(valid);
+  });
+
+  it("refuses types the app does not store, before decoding anything", () => {
+    expect(() => parseUploadInput({ ...valid, contentType: "image/svg+xml" })).toThrow(
+      expect.objectContaining({ status: 415 }),
+    );
+    expect(() => parseUploadInput({ ...valid, contentType: "image/gif" })).toThrow(
+      expect.objectContaining({ status: 415 }),
+    );
+  });
+
+  it("refuses an oversized body, text that is not base64, and a bad business id", () => {
+    expect(() => parseUploadInput({ ...valid, data: "A".repeat(900_000) })).toThrow(
+      expect.objectContaining({ status: 413 }),
+    );
+    expect(() => parseUploadInput({ ...valid, data: "<script>" })).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
+    expect(() => parseUploadInput({ ...valid, businessId: "../x" })).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
+    expect(() => parseUploadInput(null)).toThrow(expect.objectContaining({ status: 400 }));
+  });
+});
+
+describe("upload allowance", () => {
+  it("refuses an account past its uploads a minute, and only that account", () => {
+    let now = 0;
+    const limiter = new SlidingWindowLimiter(
+      { limit: UPLOADS_PER_MINUTE, windowMs: 60_000 },
+      () => now,
+    );
+    for (let i = 0; i < UPLOADS_PER_MINUTE; i++) takeUploadAllowance("u1", limiter);
+    expect(() => takeUploadAllowance("u1", limiter)).toThrow(
+      expect.objectContaining({ status: 429 }),
+    );
+    expect(() => takeUploadAllowance("u2", limiter)).not.toThrow();
+    now = 61_000;
+    expect(() => takeUploadAllowance("u1", limiter)).not.toThrow();
+  });
+});
+
+describe("refused uploads and the allowance", () => {
+  const oneAMinute = () => new SlidingWindowLimiter({ limit: 1, windowMs: 60_000 }, () => 0);
+  const stored = { id: "img_1" };
+  const steps = (over: Partial<Parameters<typeof storeUploadFor>[1]> = {}) => ({
+    resolveOwner: async () => "owner-1",
+    assertEngagementOpen: async () => {},
+    insert: async () => stored,
+    ...over,
+  });
+
+  it("spends no slot on an upload refused because the business is not saved (409)", async () => {
+    const limiter = oneAMinute();
+    await expect(
+      storeUploadFor("u1", steps({ resolveOwner: async () => null }), limiter),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(storeUploadFor("u1", steps(), limiter)).resolves.toBe(stored);
+  });
+
+  it("spends no slot on an upload refused by the access or engagement checks (403, 409)", async () => {
+    const limiter = oneAMinute();
+    const refuse = (status: number) => async () => {
+      throw new RequestError(status, "refused");
+    };
+    await expect(
+      storeUploadFor("u1", steps({ resolveOwner: refuse(403) }), limiter),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      storeUploadFor("u1", steps({ assertEngagementOpen: refuse(409) }), limiter),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(storeUploadFor("u1", steps(), limiter)).resolves.toBe(stored);
+  });
+
+  it("spends a slot on an upload that passes the checks", async () => {
+    const limiter = oneAMinute();
+    let inserted = 0;
+    const counting = steps({
+      insert: async () => {
+        inserted += 1;
+        return stored;
+      },
+    });
+    await storeUploadFor("u1", counting, limiter);
+    await expect(storeUploadFor("u1", counting, limiter)).rejects.toMatchObject({ status: 429 });
+    expect(inserted).toBe(1);
+  });
+});

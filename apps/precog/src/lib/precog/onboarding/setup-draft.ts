@@ -1,0 +1,294 @@
+import type { Departure } from "../continuity/access-removal";
+import { MAX_BUSINESS_NAME } from "../business-id";
+import { INDUSTRIES, type IndustryId } from "../industry";
+import { browserSessionStorage, type StorageLike } from "../local-data";
+import {
+  normalizeAnsweredQuestions,
+  normalizeSetupAnswers,
+  type SetupAnswers,
+  type SetupQuestion,
+} from "./setup-answers";
+import {
+  ONBOARDING_FACTS_VERSION,
+  ONBOARDING_QUESTION_IDS,
+  normalizeOnboardingFacts,
+  type OnboardingFacts,
+  type OnboardingActor,
+  type OnboardingQuestionId,
+  type LocationBand,
+  type MappingScope,
+  type SetupMethod,
+  type WorkforceBand,
+} from "./decision-model";
+import { firstRowForIndustry, type OwnTeamRow } from "./own-team";
+
+/**
+ * The setup grid in progress, kept in this tab's session storage so a reload
+ * does not throw away what the owner has entered: the line of business they
+ * picked, the business name, the rows, a roster pasted but not yet used, and
+ * the people a pasted roster left out as no longer working here.
+ */
+export const SETUP_DRAFT_KEY = "precog.onboarding-draft.v1";
+
+export interface SetupDraft {
+  /** Absent on legacy drafts; version 1 adds adaptive-onboarding progress. */
+  schemaVersion?: typeof ONBOARDING_FACTS_VERSION;
+  actor?: OnboardingActor;
+  workforceBand?: WorkforceBand;
+  locationBand?: LocationBand;
+  mappingScope?: MappingScope;
+  setupMethod?: SetupMethod;
+  answers?: OnboardingFacts["answers"];
+  currentQuestionId?: OnboardingQuestionId;
+  step: "industry" | "questions" | "money" | "team";
+  selected: IndustryId;
+  businessName: string;
+  rows: OwnTeamRow[];
+  /** Roster text pasted into the box but not yet used to fill the table. */
+  paste: string;
+  /** The unfinished business the draft was entered for; absent in drafts from older versions. */
+  businessId?: string;
+  /**
+   * People a pasted roster marked terminated or inactive, whose pay and
+   * logins finishing asks the owner to confirm are stopped. The paste is
+   * cleared once used, so the draft is the only place they survive a reload.
+   */
+  leftOut?: Departure[];
+  setupAnswers?: SetupAnswers;
+  /**
+   * The money questions the owner chose an answer for. The rest keep the Not
+   * sure value in `setupAnswers` and show as unanswered.
+   */
+  answeredQuestions?: SetupQuestion[];
+  /** Valid imported rows waiting outside the 60-person review grid. */
+  unresolvedRows?: number;
+}
+
+const INDUSTRY_IDS = new Set<string>(INDUSTRIES.map((i) => i.id));
+const QUESTION_IDS = new Set<string>(ONBOARDING_QUESTION_IDS);
+
+const optional = (value: unknown, type: "string" | "boolean") =>
+  value === undefined || typeof value === type;
+
+/** Absent, or a list of strings. */
+const optionalStrings = (value: unknown) =>
+  value === undefined || (Array.isArray(value) && value.every((d) => typeof d === "string"));
+
+/** A row every field of which has the type the grid gives it; anything else is dropped. */
+function isRow(value: unknown): value is OwnTeamRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  const readAs = row.readAs as Record<string, unknown> | undefined;
+  return (
+    typeof row.name === "string" &&
+    typeof row.role === "string" &&
+    Array.isArray(row.duties) &&
+    row.duties.every((d) => typeof d === "string") &&
+    optionalStrings(row.answersUnticked) &&
+    optionalStrings(row.keptDuties) &&
+    optional(row.owner, "boolean") &&
+    optional(row.onLeave, "boolean") &&
+    (row.tenureYears === undefined ||
+      (typeof row.tenureYears === "number" && Number.isFinite(row.tenureYears))) &&
+    ["department", "employeeId", "lastDay", "suggestedFor", "suggestedIn", "rowId"].every((key) =>
+      optional(row[key], "string"),
+    ) &&
+    (readAs === undefined ||
+      (typeof readAs === "object" &&
+        readAs !== null &&
+        typeof readAs.role === "string" &&
+        optional(readAs.title, "string") &&
+        optional(readAs.partial, "boolean")))
+  );
+}
+
+function isDeparture(value: unknown): value is Departure {
+  if (!value || typeof value !== "object") return false;
+  const who = value as Record<string, unknown>;
+  return (
+    typeof who.name === "string" && optional(who.role, "string") && optional(who.personId, "string")
+  );
+}
+
+/**
+ * The draft in this tab, or null when there is none or it is not one this
+ * version can read, such as a draft for a line of business this version does
+ * not know.
+ */
+export function readSetupDraft(
+  storage: StorageLike | null = browserSessionStorage(),
+): SetupDraft | null {
+  let raw: string | null;
+  try {
+    raw = storage?.getItem(SETUP_DRAFT_KEY) ?? null;
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const draft = JSON.parse(raw) as Record<string, unknown>;
+    if (!draft || typeof draft !== "object") return null;
+    if (typeof draft.businessName !== "string" || !Array.isArray(draft.rows)) return null;
+    if (typeof draft.selected !== "string" || !INDUSTRY_IDS.has(draft.selected)) return null;
+    const leftOut = Array.isArray(draft.leftOut) ? draft.leftOut.filter(isDeparture) : [];
+    const setupAnswers = normalizeSetupAnswers(draft.setupAnswers);
+    const answeredQuestions = normalizeAnsweredQuestions(draft.answeredQuestions);
+    const facts = normalizeOnboardingFacts({
+      schemaVersion: draft.schemaVersion,
+      actor: draft.actor,
+      workforceBand: draft.workforceBand,
+      locationBand: draft.locationBand,
+      mappingScope: draft.mappingScope,
+      setupMethod: draft.setupMethod,
+      answers: draft.answers,
+    });
+    return {
+      step:
+        draft.step === "team" || draft.step === "money" || draft.step === "questions"
+          ? draft.step
+          : "industry",
+      ...(draft.schemaVersion === ONBOARDING_FACTS_VERSION
+        ? { schemaVersion: ONBOARDING_FACTS_VERSION }
+        : {}),
+      ...(facts?.actor ? { actor: facts.actor } : {}),
+      ...(facts?.workforceBand ? { workforceBand: facts.workforceBand } : {}),
+      ...(facts?.locationBand ? { locationBand: facts.locationBand } : {}),
+      ...(facts?.mappingScope ? { mappingScope: facts.mappingScope } : {}),
+      ...(facts?.setupMethod ? { setupMethod: facts.setupMethod } : {}),
+      ...(facts?.answers ? { answers: facts.answers } : {}),
+      ...(typeof draft.currentQuestionId === "string" && QUESTION_IDS.has(draft.currentQuestionId)
+        ? { currentQuestionId: draft.currentQuestionId as OnboardingQuestionId }
+        : {}),
+      selected: draft.selected as IndustryId,
+      businessName: draft.businessName.slice(0, MAX_BUSINESS_NAME),
+      rows: draft.rows.filter(isRow),
+      paste: typeof draft.paste === "string" ? draft.paste : "",
+      ...(typeof draft.businessId === "string" ? { businessId: draft.businessId } : {}),
+      ...(leftOut.length > 0 ? { leftOut } : {}),
+      ...(setupAnswers ? { setupAnswers } : {}),
+      ...(answeredQuestions.length > 0 ? { answeredQuestions } : {}),
+      ...(typeof draft.unresolvedRows === "number" &&
+      Number.isInteger(draft.unresolvedRows) &&
+      draft.unresolvedRows >= 0
+        ? { unresolvedRows: draft.unresolvedRows }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Saves the draft, or clears it with null; storage that refuses leaves it in memory only. */
+export function writeSetupDraft(
+  draft: SetupDraft | null,
+  storage: StorageLike | null = browserSessionStorage(),
+): boolean {
+  if (!storage) return false;
+  try {
+    if (draft) storage.setItem(SETUP_DRAFT_KEY, JSON.stringify(draft));
+    else storage.removeItem(SETUP_DRAFT_KEY);
+    return true;
+  } catch {
+    // Tell the caller instead of implying a reload can recover this draft.
+    return false;
+  }
+}
+
+/** Something the owner typed: a business name, a person's name, or a pasted roster. */
+export function draftHasTypedWork(draft: Pick<SetupDraft, "businessName" | "rows" | "paste">) {
+  return (
+    draft.businessName.trim().length > 0 ||
+    draft.paste.trim().length > 0 ||
+    draft.rows.some((r) => r.name.trim().length > 0)
+  );
+}
+
+/** How many people in the draft have a name. */
+export function namedPeople(draft: Pick<SetupDraft, "rows">): number {
+  return draft.rows.filter((r) => r.name.trim().length > 0).length;
+}
+
+/**
+ * Whether a draft holds anything the owner did beyond opening setup: a
+ * business name other than the one they came in with, a person, a pasted
+ * roster, an answered question, or a step past the first.
+ */
+export function draftHasProgress(draft: SetupDraft, typedName = ""): boolean {
+  return (
+    (draft.businessName.trim().length > 0 && draft.businessName.trim() !== typedName.trim()) ||
+    draft.paste.trim().length > 0 ||
+    namedPeople(draft) > 0 ||
+    draft.step === "money" ||
+    draft.step === "team" ||
+    Boolean(draft.actor ?? draft.workforceBand ?? draft.locationBand ?? draft.setupMethod) ||
+    (draft.answeredQuestions?.length ?? 0) > 0
+  );
+}
+
+/**
+ * The rows with each title suggestion marked as made under `industry`, where
+ * a row lacks the mark (`suggestedIn`): a draft saved before Precog kept it
+ * has none, and its ticks came from the line of business it was saved with.
+ */
+function withSuggestedIn(rows: OwnTeamRow[], industry: IndustryId): OwnTeamRow[] {
+  const unmarked = rows.some((row) => row.suggestedFor && !row.suggestedIn);
+  return unmarked
+    ? rows.map((row) =>
+        row.suggestedFor && !row.suggestedIn ? { ...row, suggestedIn: industry } : row,
+      )
+    : rows;
+}
+
+/**
+ * Where setup starts. A draft entered for this same unfinished business (a
+ * reload mid-setup) comes back exactly as it was, with `resumed` when it
+ * holds progress, so the dialog can say so and offer to start over. A draft from an earlier
+ * setup in this tab, one the owner left to load the sample, comes back when
+ * it holds typed work, with the name and line of business chosen for this
+ * business, and `restoredEarlier` so the dialog can say so and offer to start
+ * over. Otherwise setup starts fresh, on the team grid when the business
+ * already has a name.
+ */
+export function initialSetup(
+  draft: SetupDraft | null,
+  business: { businessId: string; industry: IndustryId; typedName: string },
+  freshRows: () => OwnTeamRow[],
+): { draft: SetupDraft; restoredEarlier: boolean; resumed: boolean } {
+  const fresh: SetupDraft = {
+    schemaVersion: ONBOARDING_FACTS_VERSION,
+    currentQuestionId: "actor",
+    step: business.typedName ? "team" : "industry",
+    selected: business.industry,
+    businessName: business.typedName,
+    // A nonprofit's grid starts with its executive director, not an owner.
+    rows: firstRowForIndustry(freshRows(), business.industry),
+    paste: "",
+    businessId: business.businessId,
+  };
+  if (!draft) return { draft: fresh, restoredEarlier: false, resumed: false };
+  const sameSetup =
+    draft.businessId === business.businessId ||
+    (draft.businessId === undefined && draftHasTypedWork(draft));
+  // The draft's rows were ticked under the line of business it was saved
+  // with; a draft saved before Precog kept that on each row is marked now.
+  const rows = withSuggestedIn(draft.rows, draft.selected);
+  if (sameSetup)
+    return {
+      draft: { ...draft, rows, businessId: business.businessId },
+      restoredEarlier: false,
+      resumed: draftHasProgress(draft, business.typedName),
+    };
+  if (!draftHasTypedWork(draft)) return { draft: fresh, restoredEarlier: false, resumed: false };
+  return {
+    draft: {
+      ...draft,
+      rows,
+      step: "team",
+      selected: business.typedName ? business.industry : draft.selected,
+      businessName: business.typedName || draft.businessName,
+      businessId: business.businessId,
+    },
+    restoredEarlier: true,
+    resumed: false,
+  };
+}
