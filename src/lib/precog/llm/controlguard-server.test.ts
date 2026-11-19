@@ -13,7 +13,7 @@ vi.mock("@tanstack/react-start", () => ({
       validator: () => chain,
       handler:
         (handler: (input: { data: unknown; context: { llm: typeof seams.access } }) => unknown) =>
-        ({ data }: { data?: unknown }) =>
+        ({ data }: { data?: unknown } = {}) =>
           handler({ data, context: { llm: seams.access } }),
     };
     return chain;
