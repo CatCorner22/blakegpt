@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from tools.leave_hours import accrue, year_end_carryover
+from tools.leave_hours import accrue, main, year_end_carryover
 
 
 def run_accrual(
@@ -39,6 +39,41 @@ def test_one_hour_per_forty_hours() -> None:
 def test_annual_cap_stops_accrual_during_period() -> None:
     rows = run_accrual(["80", "80"], rate="40", annual_cap="3")
     assert [row.earned for row in rows] == [Decimal("2.00"), Decimal("1.00")]
+
+
+def test_annual_cap_resets_at_plan_year_start() -> None:
+    rows = accrue(
+        ["40", "40"],
+        "40",
+        "1",
+        None,
+        None,
+        "0",
+        ["0", "0"],
+        periods=["2025-12-31", "2026-01-31"],
+        year_start="01-01",
+    )
+    assert [row.earned for row in rows] == [Decimal("1.00"), Decimal("1.00")]
+
+
+def test_cli_accepts_year_start_option(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "hours.csv"
+    source.write_text(
+        "period,hours_worked,hours_used\n"
+        "2025-06-30,40,0\n"
+        "2025-07-31,40,0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["leave_hours", str(source), "--rate", "40", "--annual-cap", "1", "--year-start", "07-01"],
+    )
+
+    assert main() == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "2025-06-30,40,1.00,0,1.00",
+        "2025-07-31,40,1.00,0,2.00",
+    ]
 
 
 def test_balance_cap_limits_accrual() -> None:
