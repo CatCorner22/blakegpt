@@ -77,10 +77,13 @@ def guard_reply(question: str, reply: str) -> str:
 
 
 def _rescore_reply(question: str, reply: str) -> str:
-    body, marker, _ = reply.rpartition(_DRAFTING_FOOTER)
-    if marker:
-        reply = body
-    return guard_reply(question, reply)
+    body, marker, previous_footer = reply.rpartition(_DRAFTING_FOOTER)
+    if not marker:
+        return guard_reply(question, reply)
+    guarded = guard_reply(question, body)
+    if guarded.count(_DRAFTING_FOOTER) == body.count(_DRAFTING_FOOTER):
+        return guarded + marker + previous_footer
+    return guarded
 
 
 def score_case(case, reply: str, seconds: float, top_cards: list[str]) -> dict:
