@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import stat
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
@@ -41,6 +42,10 @@ class PossibleMatch:
 
 
 def download_leie(path: Path, timeout: int = 45) -> int:
+    try:
+        existing_mode = stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        existing_mode = None
     request = Request(LEIE_URL, headers={"User-Agent": "office-compliance-assistant/1.0"})
     with urlopen(request, timeout=timeout) as response:
         if response.status != 200:
@@ -59,6 +64,8 @@ def download_leie(path: Path, timeout: int = 45) -> int:
             temporary.write(data)
             temporary.flush()
             os.fsync(temporary.fileno())
+        if existing_mode is not None:
+            os.chmod(temporary_path, existing_mode)
         os.replace(temporary_path, path)
         temporary_path = None
     finally:
@@ -121,6 +128,20 @@ def _validate_download_target(target: Path, input_paths: list[Path]) -> None:
             )
 
 
+def _validate_staff_identifiers(rows: list[dict[str, str]]) -> None:
+    if any(
+        (row["first"].strip() and row["last"].strip())
+        or row["business"].strip()
+        or row["npi"].strip()
+        for row in rows
+    ):
+        return
+    raise ValueError(
+        "staff CSV has no usable identifiers. Accepted headers are first and last "
+        "(first/first_name and last/last_name), business/business_name, or npi."
+    )
+
+
 def _read_csv(
     path: Path,
     aliases: dict[str, tuple[str, ...]],
@@ -131,8 +152,21 @@ def _read_csv(
         reader = csv.DictReader(source)
         headers = reader.fieldnames or []
         original_by_normalized: dict[str, str] = {}
+        duplicate_headers: list[tuple[str, str]] = []
         for header in headers:
-            original_by_normalized.setdefault(_normalize_header(header), header)
+            normalized = _normalize_header(header)
+            original = original_by_normalized.get(normalized)
+            if original is None:
+                original_by_normalized[normalized] = header
+            else:
+                duplicate_headers.append((original, header))
+        if duplicate_headers:
+            details = "; ".join(
+                f"{first!r} and {second!r}" for first, second in duplicate_headers
+            )
+            raise ValueError(
+                f"{source_name} CSV has duplicate headers after normalization: {details}"
+            )
         selected: dict[str, str | None] = {}
         missing: list[str] = []
         for canonical, accepted in aliases.items():
@@ -179,9 +213,10 @@ def main() -> int:
         staff_rows = _read_csv(
             args.input,
             STAFF_HEADERS,
-            ("first", "last"),
+            (),
             "staff",
         )
+        _validate_staff_identifiers(staff_rows)
         leie_path = args.leie
         if args.download:
             size = download_leie(args.download)

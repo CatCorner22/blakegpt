@@ -1,4 +1,5 @@
 import csv
+import stat
 from pathlib import Path
 
 import pytest
@@ -67,9 +68,10 @@ def test_cli_reports_missing_staff_headers_with_exit_two(
 
     assert exc.value.code == 2
     error = capsys.readouterr().err
-    assert "staff CSV is missing required header(s)" in error
-    assert "first (accepted: first or first_name)" in error
-    assert "last (accepted: last or last_name)" in error
+    assert "staff CSV has no usable identifiers" in error
+    assert "first and last" in error
+    assert "business/business_name" in error
+    assert "npi" in error
 
 
 def test_cli_reports_missing_leie_headers_with_exit_two(
@@ -92,6 +94,73 @@ def test_cli_reports_missing_leie_headers_with_exit_two(
     assert "BUSNAME" in error
     assert "NPI" in error
     assert "EXCLDATE" in error
+
+
+@pytest.mark.parametrize(
+    ("header", "value", "expected_match"),
+    [
+        ("Business Name", "Sample Dental LLC", "possible business match"),
+        ("NPI", "1234567890", "possible npi match"),
+    ],
+)
+def test_cli_screens_roster_with_business_or_npi_only(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    header: str,
+    value: str,
+    expected_match: str,
+) -> None:
+    staff = tmp_path / "staff.csv"
+    leie = Path(__file__).parent / "fixtures" / "leie.csv"
+    staff.write_text(f"{header}\n{value}\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["oig_exclusion_check", str(staff), "--leie", str(leie)])
+
+    assert main() == 0
+    assert expected_match in capsys.readouterr().out
+
+
+def test_cli_rejects_roster_without_usable_identifiers(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    staff = tmp_path / "staff.csv"
+    leie = Path(__file__).parent / "fixtures" / "leie.csv"
+    staff.write_text("first,business_name,npi\nAda,,\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["oig_exclusion_check", str(staff), "--leie", str(leie)])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert "no usable identifiers" in error
+    assert "first and last" in error
+    assert "business/business_name" in error
+    assert "npi" in error
+
+
+def test_cli_rejects_duplicate_headers_after_normalization(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    staff = tmp_path / "staff.csv"
+    leie = Path(__file__).parent / "fixtures" / "leie.csv"
+    staff.write_text(
+        "Business Name,NPI,npi\nSample Dental LLC,1234567890,1234567890\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.argv", ["oig_exclusion_check", str(staff), "--leie", str(leie)])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert "duplicate headers after normalization" in error
+    assert "'NPI' and 'npi'" in error
 
 
 def test_download_target_cannot_resolve_to_staff_input(
@@ -124,6 +193,7 @@ def test_download_target_cannot_resolve_to_staff_input(
 def test_download_leie_replaces_target_after_success(tmp_path: Path, monkeypatch) -> None:
     target = tmp_path / "UPDATED.csv"
     target.write_bytes(b"old contents")
+    target.chmod(0o640)
     payload = b"LASTNAME,FIRSTNAME,MIDNAME,BUSNAME,NPI,EXCLTYPE,EXCLDATE,REINDATE\n"
 
     class Response:
@@ -142,6 +212,7 @@ def test_download_leie_replaces_target_after_success(tmp_path: Path, monkeypatch
 
     assert download_leie(target) == len(payload)
     assert target.read_bytes() == payload
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
     assert list(tmp_path.glob(".UPDATED.csv.*.tmp")) == []
 
 

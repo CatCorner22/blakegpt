@@ -50,10 +50,34 @@ def test_annual_cap_resets_at_plan_year_start() -> None:
         None,
         "0",
         ["0", "0"],
-        periods=["2025-12-31", "2026-01-31"],
+        periods=["2025-12-31", "2026-01-01"],
         year_start="01-01",
     )
     assert [row.earned for row in rows] == [Decimal("1.00"), Decimal("1.00")]
+
+
+@pytest.mark.parametrize("period", ["not-a-date", ""])
+def test_cli_rejects_malformed_or_missing_period_date_with_row(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    period: str,
+) -> None:
+    source = tmp_path / "hours.csv"
+    source.write_text(
+        f"period,hours_worked,hours_used\n{period},40,0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["leave_hours", str(source), "--rate", "40", "--annual-cap", "1"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 2
+    assert "row 2" in capsys.readouterr().err
 
 
 def test_cli_accepts_year_start_option(tmp_path, monkeypatch, capsys) -> None:
@@ -92,6 +116,22 @@ def test_carryover_cap() -> None:
     assert year_end_carryover("45.25", None) == Decimal("45.25")
     rows = run_accrual(["80"], rate="40", carryover_cap="1")
     assert rows[-1].balance == Decimal("1.00")
+
+
+def test_carryover_cap_applies_before_january_accrual() -> None:
+    rows = accrue(
+        ["50", "2"],
+        "1",
+        None,
+        None,
+        "20",
+        "0",
+        ["0", "0"],
+        periods=["2025-12-31", "2026-01-31"],
+    )
+
+    assert rows[0].balance == Decimal("50.00")
+    assert rows[1].balance == Decimal("22.00")
 
 
 def test_rounding_uses_half_up_per_period() -> None:
