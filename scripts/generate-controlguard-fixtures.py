@@ -29,9 +29,11 @@ for args in (
     dict(quantity=3, invoice_pack=12, po_pack=24, billed_price=80, contract_list_price=120, discount=.2),
     dict(quantity=1, invoice_pack=0, po_pack=0, billed_price=2, contract_list_price=3, discount=0),
     dict(quantity=1, invoice_pack=1, po_pack=1, billed_price=10, contract_list_price=100, discount=.9),
+    dict(quantity=1, invoice_pack=3, po_pack=3, billed_price=1, contract_list_price=1, discount=0),
 ):
     add(price, args, price(args))
-for values in ([1.06, 1.08, 1.1, .95], [1.1, 1.1, 1.1, 1.01], []):
+for values in ([1.06, 1.08, 1.1, .95], [1.1, 1.1, 1.1, 1.01],
+               [1.06, 1.06, 1.06, 1.08, 1.09, 1.1, 1.01, 1, .99, .95], []):
     args = dict(tolerance=.1, invoices=[dict(invoice_unit_price=v, po_unit_price=1) for v in values])
     add(skim, args, skim(args))
 for args in (
@@ -63,6 +65,9 @@ with TemporaryDirectory() as temp:
     scores = dict(gates=dict.fromkeys(GATES, False), impact=4, likelihood=4, legal=0,
                   detection=0, recoverability=0, aggregation=0)
     conflict = dict(asset_class="Cash", vertices=["reconciliation", "custody"], impact=7, exploitability=10)
+    for impact, exploitability in ((10, 5.99), (5, 6.98), (6.103515625, 9.8304), (10, 5.999999999999999)):
+        args = dict(conflict, subject="Cash reviewer", impact=impact, exploitability=exploitability)
+        add(sod, args, sod(args, ledger))
     for date in (8, 9, 22, 23):
         now = datetime(2026, 1, date, tzinfo=timezone.utc)
         args = dict(scores, **proof, compensating_credit=2)

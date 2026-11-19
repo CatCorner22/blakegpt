@@ -47,22 +47,24 @@ const checkInput = z.strictObject({
   entries: z.array(entry).max(100),
 });
 
-function displayResult(result: ControlGuardResult) {
+function displayResult(tool: ControlGuardTool, result: ControlGuardResult) {
   return Object.entries(result).map(
     ([key, value]) =>
       [
         key.replaceAll("_", " "),
-        value === null
-          ? "—"
-          : typeof value === "boolean"
-            ? value
-              ? "Yes"
-              : "No"
-            : typeof value === "object"
-              ? Array.isArray(value) && value.length === 0
-                ? "None"
-                : JSON.stringify(value, null, 2)
-              : String(value),
+        tool === "sod" && key === "score" && typeof value === "number"
+          ? value.toFixed(2)
+          : value === null
+            ? "—"
+            : typeof value === "boolean"
+              ? value
+                ? "Yes"
+                : "No"
+              : typeof value === "object"
+                ? Array.isArray(value) && value.length === 0
+                  ? "None"
+                  : JSON.stringify(value, null, 2)
+                : String(value),
       ] as const,
   );
 }
@@ -76,7 +78,10 @@ export const runControlGuardCheck = createServerFn({ method: "POST" })
     try {
       const signoff = await readFridayLedger(data.entries, new Date());
       return {
-        result: displayResult(controlguardTools[data.name].run(JSON.parse(data.facts), signoff)),
+        result: displayResult(
+          data.name,
+          controlguardTools[data.name].run(JSON.parse(data.facts), signoff),
+        ),
       };
     } catch (error) {
       return {

@@ -40,8 +40,17 @@ export function controlGuardTriageTier(score: number): 1 | 2 | 3 | 4 {
   return score >= 24 ? 1 : score >= 16 ? 2 : score >= 9 ? 3 : 4;
 }
 
-export function controlGuardConflictPriority(score: number): "P1" | "P2" | "P3" | "P4" {
-  return score >= 60 ? "P1" : score >= 35 ? "P2" : score >= 15 ? "P3" : "P4";
+export function controlGuardConflictPriority(
+  score: bigint,
+  denominator: bigint,
+): "P1" | "P2" | "P3" | "P4" {
+  return score >= 60n * denominator
+    ? "P1"
+    : score >= 35n * denominator
+      ? "P2"
+      : score >= 15n * denominator
+        ? "P3"
+        : "P4";
 }
 
 /**

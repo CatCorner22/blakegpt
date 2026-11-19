@@ -63,6 +63,26 @@
       }
     },
     {
+      "tool": "price",
+      "args": {
+        "quantity": 1,
+        "invoice_pack": 3,
+        "po_pack": 3,
+        "billed_price": 1,
+        "contract_list_price": 1,
+        "discount": 0
+      },
+      "result": {
+        "invoice_unit_price": 0.3333333333333333,
+        "truth_unit_price": 0.3333333333333333,
+        "truth_total": 1.0,
+        "billed_total": 1.0,
+        "overcharge": 0.0,
+        "flags": [],
+        "warnings": []
+      }
+    },
+    {
       "tool": "skim",
       "args": {
         "tolerance": 0.1,
@@ -125,6 +145,63 @@
         "ceiling_hug": 0.0,
         "flagged": false,
         "flags": [],
+        "cusum_evaluated": false
+      }
+    },
+    {
+      "tool": "skim",
+      "args": {
+        "tolerance": 0.1,
+        "invoices": [
+          {
+            "invoice_unit_price": 1.06,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1.06,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1.06,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1.08,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1.09,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1.1,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1.01,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 1,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 0.99,
+            "po_unit_price": 1
+          },
+          {
+            "invoice_unit_price": 0.95,
+            "po_unit_price": 1
+          }
+        ]
+      },
+      "result": {
+        "sample_size": 10,
+        "eligible": true,
+        "positive_skew": 0.7,
+        "ceiling_hug": 0.5,
+        "flagged": true,
+        "flags": ["TW-01", "INV-TRAP-05"],
         "cusum_evaluated": false
       }
     },
@@ -299,6 +376,98 @@
         "score": null,
         "permanent_fix_days": 30,
         "interim_control_days": 7
+      }
+    },
+    {
+      "tool": "sod",
+      "args": {
+        "asset_class": "Cash",
+        "vertices": ["reconciliation", "custody"],
+        "impact": 10,
+        "exploitability": 5.99,
+        "subject": "Cash reviewer"
+      },
+      "result": {
+        "subject": "Cash reviewer",
+        "asset_class": "Cash",
+        "vertices": ["custody", "reconciliation"],
+        "conflict": true,
+        "priority": "P2",
+        "score": 59.9,
+        "remediation_hours": 336,
+        "next_step": "Remediate within 14 calendar days.",
+        "factor": 1.0,
+        "proof_status": "not_requested",
+        "signed_at": null
+      }
+    },
+    {
+      "tool": "sod",
+      "args": {
+        "asset_class": "Cash",
+        "vertices": ["reconciliation", "custody"],
+        "impact": 5,
+        "exploitability": 6.98,
+        "subject": "Cash reviewer"
+      },
+      "result": {
+        "subject": "Cash reviewer",
+        "asset_class": "Cash",
+        "vertices": ["custody", "reconciliation"],
+        "conflict": true,
+        "priority": "P3",
+        "score": 34.9,
+        "remediation_hours": null,
+        "next_step": "Monitor weekly or monthly.",
+        "factor": 1.0,
+        "proof_status": "not_requested",
+        "signed_at": null
+      }
+    },
+    {
+      "tool": "sod",
+      "args": {
+        "asset_class": "Cash",
+        "vertices": ["reconciliation", "custody"],
+        "impact": 6.103515625,
+        "exploitability": 9.8304,
+        "subject": "Cash reviewer"
+      },
+      "result": {
+        "subject": "Cash reviewer",
+        "asset_class": "Cash",
+        "vertices": ["custody", "reconciliation"],
+        "conflict": true,
+        "priority": "P1",
+        "score": 60.0,
+        "remediation_hours": 48,
+        "next_step": "Remediate now.",
+        "factor": 1.0,
+        "proof_status": "not_requested",
+        "signed_at": null
+      }
+    },
+    {
+      "tool": "sod",
+      "args": {
+        "asset_class": "Cash",
+        "vertices": ["reconciliation", "custody"],
+        "impact": 10,
+        "exploitability": 5.999999999999999,
+        "subject": "Cash reviewer"
+      },
+      "result": {
+        "subject": "Cash reviewer",
+        "asset_class": "Cash",
+        "vertices": ["custody", "reconciliation"],
+        "conflict": true,
+        "priority": "P2",
+        "score": 59.99999999999999,
+        "remediation_hours": 336,
+        "next_step": "Remediate within 14 calendar days.",
+        "factor": 1.0,
+        "proof_status": "not_requested",
+        "signed_at": null
       }
     },
     {

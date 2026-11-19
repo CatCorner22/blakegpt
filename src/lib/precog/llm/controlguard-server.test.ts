@@ -26,7 +26,11 @@ vi.mock("./controlguard-provider.server", () => ({
   extractControlGuardInput: seams.extract,
 }));
 
-import { extractControlGuardFacts, readControlGuardReference } from "./controlguard-server";
+import {
+  extractControlGuardFacts,
+  readControlGuardReference,
+  runControlGuardCheck,
+} from "./controlguard-server";
 
 it("keeps a rate-limited draft on the manual path without spending a model unit", async () => {
   await expect(
@@ -49,3 +53,33 @@ it("returns readable catalog text, preserving currency and comparison thresholds
     expect(label).not.toMatch(/\\|[*\x60]|\$[^0-9]|\$$|\be\.g\.|\bshould\b/i);
   }
 });
+
+it.each([
+  [10, 5.99, "59.90", "P2", "336"],
+  [5, 6.98, "34.90", "P3", "—"],
+  [6.103515625, 9.8304, "60.00", "P1", "48"],
+])(
+  "displays %s × %s without noise and keeps the right priority",
+  async (impact, exploitability, score, priority, remediation) => {
+    const response = await runControlGuardCheck({
+      data: {
+        name: "sod",
+        entries: [],
+        facts: JSON.stringify({
+          subject: "Cash reviewer",
+          asset_class: "Cash",
+          vertices: ["custody", "reconciliation"],
+          impact,
+          exploitability,
+        }),
+      },
+    });
+    expect(response.result).toEqual(
+      expect.arrayContaining([
+        ["score", score],
+        ["priority", priority],
+        ["remediation hours", remediation],
+      ]),
+    );
+  },
+);

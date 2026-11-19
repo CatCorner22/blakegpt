@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { finite, fraction, multiply } from "../controlguard-decimal";
 import { controlGuardConflictPriority, controlGuardTriageTier } from "../scoring/bands";
 
 const named = z.string().refine((value) => Boolean(value.trim()), "Enter a name.");
@@ -131,8 +132,12 @@ export function sod(input: z.infer<typeof sodInput>, signoff?: Signoff) {
   const [proof_status, signed_at] =
     requested < 1 ? evidence(input, signoff) : (["not_requested", null] as const);
   const factor = proof_status === "active" ? requested : 1;
-  const score = impact * exploitability * factor;
-  const priority = controlGuardConflictPriority(score);
+  const exactScore = multiply(
+    multiply(fraction(impact), fraction(exploitability)),
+    fraction(factor),
+  );
+  const score = finite(exactScore);
+  const priority = controlGuardConflictPriority(...exactScore);
   return {
     ...common,
     score,

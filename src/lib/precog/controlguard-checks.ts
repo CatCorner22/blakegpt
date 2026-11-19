@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { decimalParts, finite, fraction, multiply, type Fraction } from "./controlguard-decimal";
 
 const amount = z.number().nonnegative();
 const text = z.string().trim().min(1);
@@ -41,30 +42,7 @@ export function price(input: z.infer<typeof priceInput>) {
   };
 }
 
-function decimalParts(value: string): [bigint, number] {
-  const [mantissa, exponent = "0"] = value.toLowerCase().split("e");
-  const [whole, fraction = ""] = mantissa.split(".");
-  return [BigInt(whole + fraction), Number(exponent) - fraction.length];
-}
-
-type Fraction = [bigint, bigint];
-
-function fraction(value: number): Fraction {
-  const [n, power] = decimalParts(String(value));
-  return power >= 0 ? [n * 10n ** BigInt(power), 1n] : [n, 10n ** BigInt(-power)];
-}
-
-const multiply = ([a, b]: Fraction, [c, d]: Fraction): Fraction => [a * c, b * d];
 const subtract = ([a, b]: Fraction, [c, d]: Fraction): Fraction => [a * d - c * b, b * d];
-
-function finite([n, d]: Fraction) {
-  if (n <= 0n) return 0;
-  const places = Math.max(0, 32 + d.toString().length - n.toString().length);
-  const digits = (n * 10n ** BigInt(places)) / d;
-  const result = Number(`${digits}e-${places}`);
-  if (!Number.isFinite(result)) throw new Error("The calculation exceeds the supported range.");
-  return result;
-}
 
 function align(values: [bigint, number][]): bigint[] {
   const power = Math.min(...values.map(([, exponent]) => exponent));
