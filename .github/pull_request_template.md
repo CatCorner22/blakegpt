@@ -4,7 +4,7 @@
 
 ## Who wrote it
 
-<!-- The person or tool (Claude Code, Cursor, Codex, Devin, Grok). -->
+<!-- The person or tool (Claude Code, Cursor, Codex, Devin, Voyager). -->
 
 ## Verified on
 

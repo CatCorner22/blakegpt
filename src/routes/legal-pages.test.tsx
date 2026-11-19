@@ -47,13 +47,7 @@ function headings(html: string): string[] {
   return [...html.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1]);
 }
 
-const PLACEHOLDERS = [
-  "[OPERATOR LEGAL NAME]",
-  "[OPERATOR ADDRESS]",
-  "[STATE]",
-  "[SUPPORT EMAIL]",
-  "[AUTH BROKER OPERATOR]",
-];
+const PLACEHOLDERS = ["[OPERATOR LEGAL NAME]", "[OPERATOR ADDRESS]", "[STATE]", "[SUPPORT EMAIL]"];
 
 describe("Terms", () => {
   const { html, title } = render(Terms);
@@ -188,21 +182,16 @@ describe("Privacy", () => {
     ]);
   });
 
-  it("prints the remaining placeholders as text and links the xAI API data policy", () => {
-    for (const placeholder of ["[SUPPORT EMAIL]", "[AUTH BROKER OPERATOR]"])
-      expect(html).toContain(placeholder);
-    expect(html).toMatch(
-      /<a href="https:\/\/x\.ai\/legal\/terms-of-service-enterprise"[^>]*rel="noreferrer">/,
-    );
-    expect(html).not.toContain("[XAI API DATA POLICY URL]");
-    expect(html).toContain("auth broker, operated by [AUTH BROKER OPERATOR]");
+  it("prints the remaining support placeholder", () => {
+    expect(html).toContain("[SUPPORT EMAIL]");
+    expect(html).not.toContain("auth broker");
   });
 
   it("states the model cap, the processors and what deletion refuses", () => {
     expect(html).toContain(
       "100 on the free plan and 400 on the Firm plan, unless this deployment sets other limits",
     );
-    expect(html).toContain("Precog does not use what you enter to train a model");
+    expect(html).toContain("Precog does not send your information for model training.");
     expect(html).toContain("Sentry or the error relay Precog&#x27;s operator sets");
     expect(html).toContain("A security summary with this list is available from [SUPPORT EMAIL].");
     expect(html).toContain("Precog refuses to delete an account while its Firm plan is active");
@@ -400,11 +389,11 @@ describe("Privacy", () => {
     expect(html).not.toContain("cannot match to their sign-in");
   });
 
-  it("says which accounts get the weekly digest, and that an X sign-in has no address", () => {
+  it("says which accounts get the weekly digest", () => {
     expect(html).toContain(
-      "An account whose address Precog can vouch for (a confirmed email-and-password address, or a confirmed Google address) and a business of its own or of its firm gets a weekly digest at its sign-in address listing what is due. An X sign-in carries no address Precog can email.",
+      "An account with a confirmed email address and a business of its own or of its firm gets a weekly digest at its sign-in address listing what is due.",
     );
-    expect(html).not.toContain("or a Google or X sign-in");
+    expect(html).not.toContain("Google or X sign-in");
   });
 });
 

@@ -1,21 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { modelEndpoint } from "./model-endpoint";
-import { grokChat, responseFormats } from "./grok-client.server";
+import { modelChat, responseFormats } from "./model-client.server";
 import { briefSelectionSchema, parseBriefSelection } from "./brief-selection";
 
 describe("modelEndpoint", () => {
-  it("defaults to xAI Grok with the xAI key and a 20 second timeout", () => {
-    expect(modelEndpoint({ XAI_API_KEY: " xai-k " })).toEqual({
-      url: "https://api.x.ai/v1/chat/completions",
-      model: "grok-4.5",
-      apiKey: "xai-k",
-      timeoutMs: 20_000,
-      provider: "xai",
-      responseFormat: "json_object",
-    });
+  it("is not configured without a model server base URL", () => {
+    expect(modelEndpoint({})).toBeNull();
   });
 
-  it("points at an OpenAI-compatible GPU server when a base URL is set", () => {
+  it("uses the business-configured model endpoint and optional API key", () => {
     expect(
       modelEndpoint({
         PRECOG_LLM_BASE_URL: "http://gpu-box:8000/v1/",
@@ -28,27 +21,26 @@ describe("modelEndpoint", () => {
       model: "Qwen/Qwen2.5-7B-Instruct",
       apiKey: "local-key",
       timeoutMs: 45_000,
-      provider: "openai-compatible",
       responseFormat: "json_schema",
     });
   });
 
-  it("never sends the xAI key to a custom server", () => {
+  it("allows a configured model server without an API key", () => {
     const endpoint = modelEndpoint({
       PRECOG_LLM_BASE_URL: "http://gpu-box:8000/v1",
-      XAI_API_KEY: "xai-secret",
     });
-    expect(endpoint.apiKey).toBe("");
+    expect(endpoint?.apiKey).toBe("");
   });
 
   it("ignores a bad timeout and caps a long one", () => {
-    expect(modelEndpoint({ PRECOG_LLM_TIMEOUT_MS: "soon" }).timeoutMs).toBe(20_000);
-    expect(modelEndpoint({ PRECOG_LLM_TIMEOUT_MS: "-5" }).timeoutMs).toBe(20_000);
-    expect(modelEndpoint({ PRECOG_LLM_TIMEOUT_MS: "999999" }).timeoutMs).toBe(120_000);
+    const base = { PRECOG_LLM_BASE_URL: "http://gpu-box:8000/v1" };
+    expect(modelEndpoint({ ...base, PRECOG_LLM_TIMEOUT_MS: "soon" })?.timeoutMs).toBe(20_000);
+    expect(modelEndpoint({ ...base, PRECOG_LLM_TIMEOUT_MS: "-5" })?.timeoutMs).toBe(20_000);
+    expect(modelEndpoint({ ...base, PRECOG_LLM_TIMEOUT_MS: "999999" })?.timeoutMs).toBe(120_000);
   });
 });
 
-describe("grokChat against a configured endpoint", () => {
+describe("modelChat against a configured endpoint", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
@@ -64,7 +56,7 @@ describe("grokChat against a configured endpoint", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await grokChat("local-key", {
+    const result = await modelChat("local-key", {
       messages: [{ role: "user", content: "hi" }],
       maxTokens: 10,
       temperature: 0,
@@ -93,7 +85,7 @@ describe("grokChat against a configured endpoint", () => {
     );
 
     await expect(
-      grokChat("local-key", {
+      modelChat("local-key", {
         messages: [{ role: "user", content: "hi" }],
         maxTokens: 10,
         temperature: 0,
@@ -124,7 +116,7 @@ describe("structured output", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    await grokChat("k", {
+    await modelChat("k", {
       messages: [{ role: "user", content: "hi" }],
       maxTokens: 10,
       temperature: 0,
@@ -143,8 +135,9 @@ describe("structured output", () => {
     });
   });
 
-  it("keeps json_object for xAI", async () => {
-    vi.stubEnv("PRECOG_LLM_BASE_URL", "");
+  it("uses json_object when configured for the model server", async () => {
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://gpu-box:8000/v1");
+    vi.stubEnv("PRECOG_LLM_RESPONSE_FORMAT", "json_object");
     expect(await sentFormat()).toEqual({ type: "json_object" });
   });
 
@@ -186,10 +179,10 @@ describe("platforms that support less structured output", () => {
 
   it("reads PRECOG_LLM_RESPONSE_FORMAT and ignores an unknown value", () => {
     const base = { PRECOG_LLM_BASE_URL: "http://x/v1" };
-    expect(modelEndpoint({ ...base, PRECOG_LLM_RESPONSE_FORMAT: "NONE" }).responseFormat).toBe(
+    expect(modelEndpoint({ ...base, PRECOG_LLM_RESPONSE_FORMAT: "NONE" })?.responseFormat).toBe(
       "none",
     );
-    expect(modelEndpoint({ ...base, PRECOG_LLM_RESPONSE_FORMAT: "xml" }).responseFormat).toBe(
+    expect(modelEndpoint({ ...base, PRECOG_LLM_RESPONSE_FORMAT: "xml" })?.responseFormat).toBe(
       "json_schema",
     );
   });
@@ -208,7 +201,7 @@ describe("platforms that support less structured output", () => {
     vi.stubGlobal("fetch", fetchMock);
     const outcomes: string[] = [];
 
-    const result = await grokChat("k", {
+    const result = await modelChat("k", {
       messages: [{ role: "user", content: "hi" }],
       maxTokens: 10,
       temperature: 0,
@@ -232,7 +225,7 @@ describe("platforms that support less structured output", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("no", { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
     await expect(
-      grokChat("k", {
+      modelChat("k", {
         messages: [{ role: "user", content: "hi" }],
         maxTokens: 10,
         temperature: 0,

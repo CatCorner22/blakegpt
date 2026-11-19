@@ -152,7 +152,7 @@ export function CoachResultView({
   nextQuestions?: readonly string[];
   onAsk?: (question: string) => void;
   asking?: boolean;
-  /** True while Grok is choosing ids for the brief already on screen. */
+  /** True while Voyager is choosing ids for the brief already on screen. */
   choosing?: boolean;
 }) {
   const { say } = usePresentation();
@@ -502,7 +502,7 @@ export function withoutSection(markdown: string, heading: string): string {
 
 /**
  * Who wrote the brief, in one line the owner can repeat to their accountant.
- * Grok answering with an empty selection picked nothing, so the rules line stands.
+ * Voyager answering with an empty selection picked nothing, so the rules line stands.
  */
 export function briefAuthorLine(
   result: Pick<CoachResult, "modelStatus" | "model" | "ranker"> &
@@ -512,11 +512,11 @@ export function briefAuthorLine(
     return "A Hugging Face model ranked these moves. Precog's rules wrote every word.";
   }
   if (result.ranker === "both") {
-    return "A Hugging Face model and Grok agreed on these moves. Precog's rules wrote every word.";
+    return "A Hugging Face model and Voyager agreed on these moves. Precog's rules wrote every word.";
   }
   const pickedNone = result.highlightIds !== undefined && result.highlightIds.length === 0;
   return result.modelStatus === "answered" && !pickedNone
-    ? `Grok (${result.model ?? "model"}) picked the moves most relevant to your question. Precog's rules wrote every word.`
+    ? `Voyager (${result.model ?? "model"}) picked the moves most relevant to your question. Precog's rules wrote every word.`
     : "Written by Precog's rules from your records. No AI wrote it.";
 }
 

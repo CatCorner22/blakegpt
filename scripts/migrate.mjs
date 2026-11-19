@@ -13,7 +13,7 @@
  * the SUPPORT_EMAIL mailbox, with sign-in turned off, or while
  * src/lib/precog/legal/operator.ts still holds a bracketed placeholder such as
  * "[STATE]" (the Terms and Privacy pages print those constants), printing one
- * line per problem. It warns about sign-in without its broker client, each
+ * line per problem. It warns when email/password sign-in is unavailable, each
  * optional feature that is only half configured (see .env.example) and when
  * no error tracker is set. Elsewhere, no DATABASE_URL means skip: the PGLite
  * fallback applies the same files at startup (src/lib/db.ts).
@@ -156,12 +156,6 @@ function isHttps(value) {
  */
 function featureWarnings() {
   const warnings = [];
-  // Email and password sign-in works without the broker client; Google and X
-  // sign-in fall back to the preview client, which the broker refuses here.
-  if (!env("GROK_AUTH_CLIENT_ID") || !env("GROK_AUTH_CLIENT_SECRET"))
-    warnings.push(
-      "GROK_AUTH_CLIENT_ID and GROK_AUTH_CLIENT_SECRET are not both set, so Google and X sign-in fail; only email and password sign-in works.",
-    );
   if (!env("CRON_SECRET"))
     warnings.push(
       "CRON_SECRET is not set, so the weekly job is refused: no reminder email, no purge of deleted businesses or share logs, no QuickBooks refresh.",

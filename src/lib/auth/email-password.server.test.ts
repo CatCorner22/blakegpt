@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleOAuthUserInfo } from "better-auth/oauth2";
 import type { RenderedEmail } from "@/lib/precog/reminders/email";
 
 /**
@@ -125,63 +124,60 @@ describe("password reset", () => {
 });
 
 describe("stale unconfirmed sign-ups", () => {
+  it("frees the address a day later for a new sign-up", { timeout: 60_000 }, async () => {
+    const email = "owner@dental.example";
+    await auth.api.signUpEmail({
+      body: { email, password: "attacker-password", name: "Someone else" },
+    });
+    await makeStale(email);
+
+    const { releaseStaleSignUps } = await import("./email-password.server");
+    expect(await releaseStaleSignUps(sql)).toBe(1);
+    await auth.api.signUpEmail({ body: { email, password: "owner-password-1", name: "Owner" } });
+
+    const again = "again@dental.example";
+    await auth.api.signUpEmail({
+      body: { email: again, password: "attacker-password", name: "A" },
+    });
+    await makeStale(again);
+    mail.sent.length = 0;
+    await auth.api.signUpEmail({
+      body: { email: again, password: "owner-password-1", name: "B" },
+    });
+    expect(mail.sent.map((m) => m.to)).toEqual([again]);
+  });
+
   it(
-    "frees the address a day later for a new sign-up or a Google sign-in",
+    "leaves a fresh one and one with a legacy linked account alone",
     { timeout: 60_000 },
     async () => {
-      const email = "owner@dental.example";
-      await auth.api.signUpEmail({
-        body: { email, password: "attacker-password", name: "Someone else" },
-      });
-      await makeStale(email);
-
-      const context = await auth.$context;
       const { releaseStaleSignUps } = await import("./email-password.server");
-      expect(await releaseStaleSignUps(sql)).toBe(1);
-      const result = await handleOAuthUserInfo({ context } as never, {
-        userInfo: { id: "g-1", email, emailVerified: true, name: "Owner" },
-        account: { providerId: "grok-google", accountId: "g-1" },
-      });
-      expect(result.error).toBeNull();
-      const accounts = await context.internalAdapter.findAccounts(result.data!.user.id);
-      expect(accounts.map((a) => a.providerId)).toEqual(["grok-google"]);
-
-      const again = "again@dental.example";
       await auth.api.signUpEmail({
-        body: { email: again, password: "attacker-password", name: "A" },
+        body: { email: "fresh@firm.example", password: "long-password-1", name: "Fresh" },
       });
-      await makeStale(again);
-      mail.sent.length = 0;
-      await auth.api.signUpEmail({
-        body: { email: again, password: "owner-password-1", name: "B" },
+      const context = await auth.$context;
+      const linked = await context.internalAdapter.createUser(
+        {
+          email: "linked@firm.example",
+          name: "Linked",
+          emailVerified: false,
+        },
+        { method: "email-password" },
+      );
+      await context.internalAdapter.linkAccount({
+        userId: linked.id,
+        providerId: "credential",
+        accountId: linked.id,
       });
-      expect(mail.sent.map((m) => m.to)).toEqual([again]);
+      await context.internalAdapter.linkAccount({
+        userId: linked.id,
+        providerId: "legacy-link",
+        accountId: "legacy-1",
+      });
+      await makeStale("linked@firm.example");
+      expect(await releaseStaleSignUps(sql)).toBe(0);
     },
   );
-
-  it("leaves a fresh one, and one with a Google sign-in, alone", { timeout: 60_000 }, async () => {
-    const { releaseStaleSignUps } = await import("./email-password.server");
-    await auth.api.signUpEmail({
-      body: { email: "fresh@firm.example", password: "long-password-1", name: "Fresh" },
-    });
-    const context = await auth.$context;
-    const linked = await context.internalAdapter.createUser(
-      { email: "linked@firm.example", name: "Linked", emailVerified: false },
-      { method: "email-password" },
-    );
-    await context.internalAdapter.linkAccount({
-      userId: linked.id,
-      providerId: "credential",
-      accountId: linked.id,
-    });
-    await context.internalAdapter.linkAccount({
-      userId: linked.id,
-      providerId: "grok-x",
-      accountId: "x-1",
-    });
-    await makeStale("linked@firm.example");
-    expect(await releaseStaleSignUps(sql)).toBe(0);
-  });
 
   it(
     "keeps an unconfirmed account that signed in or holds a business",
@@ -209,7 +205,11 @@ describe("auth email limit", () => {
     const { sendAuthEmail } = await import("./email-password.server");
     const context = await auth.$context;
     const user = await context.internalAdapter.createUser(
-      { email: "flood@firm.example", name: "Flood", emailVerified: false },
+      {
+        email: "flood@firm.example",
+        name: "Flood",
+        emailVerified: false,
+      },
       { method: "email-password" },
     );
     const send = vi.fn(async () => undefined);
@@ -228,7 +228,11 @@ describe("auth email limit", () => {
     const { sendAuthEmail } = await import("./email-password.server");
     const context = await auth.$context;
     const user = await context.internalAdapter.createUser(
-      { email: "bounce@firm.example", name: "Bounce", emailVerified: false },
+      {
+        email: "bounce@firm.example",
+        name: "Bounce",
+        emailVerified: false,
+      },
       { method: "email-password" },
     );
     const failure = new Error("Resend refused the request");

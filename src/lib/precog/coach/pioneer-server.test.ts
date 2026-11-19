@@ -72,7 +72,7 @@ vi.mock("../llm/daily-usage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../llm/daily-usage")>()),
   checkDailyBudget: seams.checkDailyBudget,
 }));
-vi.mock("../llm/grok-client.server", () => ({ grokChat: vi.fn() }));
+vi.mock("../llm/model-client.server", () => ({ modelChat: vi.fn() }));
 vi.mock("../llm/usage-log.server", () => ({ insertUsage: vi.fn() }));
 vi.mock("@/lib/precog/firm/entitlements.server", () => ({
   loadEntitlements: async () => ({ aiPlan: "free" }),
@@ -104,7 +104,7 @@ beforeEach(() => {
   seams.checkDailyBudget.mockReset().mockResolvedValue("allowed");
   seams.answerPioneerRules.mockReset().mockResolvedValue({ ok: true });
   seams.selectPioneerHighlights.mockReset().mockResolvedValue({ ok: true });
-  vi.stubEnv("XAI_API_KEY", "key");
+  vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
 });
 
 describe("runPioneerRules", () => {

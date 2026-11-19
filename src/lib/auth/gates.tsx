@@ -6,8 +6,7 @@ import { useCurrentUser, useCurrentUserState } from "./use-current-user";
 /**
  * Auth state components — plain wrappers around `useCurrentUserState()`.
  *
- * Auth is ON by default (including the sandbox live preview, which does real
- * sign-in). Visitors are signed out until they authenticate. The shared dev
+ * Auth is on by default. Visitors are signed out until they authenticate. The shared dev
  * user only appears when auth is explicitly disabled (`VITE_AUTH_ENABLED=false`).
  * While the session is still resolving, gates that care about signed-out state
  * render nothing so there's no signed-out flash on hard reload.

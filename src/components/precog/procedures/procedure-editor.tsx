@@ -98,7 +98,7 @@ export function ProcedureEditor({
     const added = d.steps
       .slice(0, PROCEDURE_LIMITS.steps - kept.length)
       .map((text) =>
-        d.source === "grok" ? { ...newStep(text), aiDrafted: true as const } : newStep(text),
+        d.source === "model" ? { ...newStep(text), aiDrafted: true as const } : newStep(text),
       );
     setDraft((prev) => ({
       ...prev,
@@ -314,7 +314,7 @@ export function ProcedureEditor({
                     </label>
                     {step.aiDrafted && (
                       <p className="text-xs text-accent">
-                        Drafted by Grok. Compare it with the screen or the place, then edit it or
+                        Drafted by Voyager. Compare it with the screen or the place, then edit it or
                         verify the procedure.
                       </p>
                     )}

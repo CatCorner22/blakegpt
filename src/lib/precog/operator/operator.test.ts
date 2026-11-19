@@ -96,8 +96,8 @@ beforeEach(async () => {
     update firms set plan = 'monthly' where user_id = 'hm';
     insert into firm_members (firm_user_id, member_user_id, role) values
       ('fo', 'fo', 'owner'), ('fo', 'pp', 'preparer'), ('hm', 'hm', 'owner');
-    insert into account (id, "accountId", "providerId", "userId", "updatedAt") values
-      ('a1', 'g1', 'grok-google', 'fo', now()), ('a2', 'c1', 'credential', 'fo', now());
+    insert into account (id, "accountId", "providerId", "userId", "updatedAt")
+      values ('a2', 'c1', 'credential', 'fo', now());
   `);
   await db.pg.query(
     `insert into businesses (id, user_id, name, industry, profile, revision, firm_user_id, deleted_at)
@@ -240,6 +240,10 @@ describe("findOperatorAccount", () => {
       insert into email_suppressions (email, reason) values ('fay@firm.test', 'bounced');
       insert into product_events (user_id, event, occurred_at)
         values ('fo', 'first_business', '2026-09-01T12:00:00Z');
+      insert into account (id, "accountId", "providerId", "userId", "updatedAt")
+        values ('a_google', 'google-id', 'legacy-google', 'fo', now()),
+          ('a_x', 'x-id', 'legacy-x', 'fo', now()),
+          ('a_future', 'future-id', 'future-provider', 'fo', now());
     `);
     const { account } = await call<{ account: import("./texts").OperatorAccount }>(
       server.findOperatorAccount,
@@ -250,7 +254,7 @@ describe("findOperatorAccount", () => {
       userId: "fo",
       name: "Fay Owner",
       emailVerified: true,
-      providers: ["credential", "grok-google"],
+      providers: ["credential", "future-provider", "legacy-google", "legacy-x"],
       firm: { firmUserId: "fo", name: "North", role: "owner" },
       businesses: { live: 2, deleted: 1 },
       stripeCustomerId: null,
@@ -263,6 +267,9 @@ describe("findOperatorAccount", () => {
       modelCalls: { today: 37, limit: 400 },
       milestones: [{ event: "first_business" }],
     });
+    expect(texts.accountLines(account)).toContain(
+      "Signs in with: email and password, future-provider, Google (legacy sign-in), X (legacy sign-in)",
+    );
     expect(await log()).toEqual([
       { firm: "fo", actor: "op", event: "operator_lookup", subject: "fo" },
     ]);
@@ -704,12 +711,6 @@ describe("runOperatorCount", () => {
       { name: "past-due" },
     );
     expect(pastDue.rows).toEqual([[1]]);
-    const google = await call<import("./texts").OperatorCountResult>(
-      server.runOperatorCount,
-      "op",
-      { name: "google-digest" },
-    );
-    expect(google.rows).toEqual([[1]]);
     const weeks = await call<import("./texts").OperatorCountResult>(server.runOperatorCount, "op", {
       name: "weekly-activation",
     });
@@ -720,9 +721,6 @@ describe("runOperatorCount", () => {
     expect(texts.OPERATOR_COUNTS.map((c) => c.label)).toEqual([
       "Running subscriptions and their live clients",
       "Firms marked monthly by hand with no billing row",
-      "X-only accounts with the digest on",
-      "Google accounts without a confirmed address and the digest on",
-      "Google accounts with the digest on",
       "Firm plans past due",
       "QuickBooks connections failing or lapsing within 30 days",
       "Firms with more than one member",
@@ -808,7 +806,7 @@ describe("operator texts", () => {
       name: "Fay Owner",
       email: "fay@firm.test",
       emailVerified: true,
-      providers: ["grok-google", "credential"],
+      providers: ["credential"],
       createdAt: "2026-09-01",
       firm: { firmUserId: "fo", name: "North", role: "owner" },
       businesses: { live: 2, deleted: 1 },
@@ -823,7 +821,7 @@ describe("operator texts", () => {
     });
     expect(lines).toEqual([
       "fay@firm.test · address confirmed",
-      "Signs in with: Google, email and password",
+      "Signs in with: email and password",
       "Account created Sep 1, 2026",
       "Plan: Firm plan",
       "Firm: North (owner)",
@@ -873,7 +871,7 @@ describe("operator texts", () => {
       name: "",
       email: "xo@x.invalid",
       emailVerified: false,
-      providers: ["grok-x"],
+      providers: [],
       createdAt: "2026-09-01",
       firm: null,
       businesses: { live: 1, deleted: 0 },
@@ -890,7 +888,7 @@ describe("operator texts", () => {
         { event: "first_monthly_review", occurredAt: "2026-09-05" },
       ],
     });
-    expect(other).toContain("Signs in with: X");
+    expect(other).toContain("Signs in with: nothing on record");
     expect(other).toContain("QuickBooks: last reading failed on an unknown day (invalid_grant)");
     expect(other).toContain(
       "Milestones: first locked version Sep 3, 2026; first report sent Sep 4, 2026; first monthly review Sep 5, 2026",

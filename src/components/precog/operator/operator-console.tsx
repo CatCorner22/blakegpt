@@ -43,7 +43,7 @@ function errorText(err: unknown): string {
 /** What every unknown address prints (src/routes/__root.tsx), for anyone who is not an operator. */
 export function OperatorNotFound() {
   return (
-    <main className="mx-auto flex min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">
         {NOT_FOUND_EYEBROW}
       </p>

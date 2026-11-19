@@ -20,20 +20,17 @@ const ACCOUNT_CHANGED = "The account changed. Reload before continuing.";
 
 /**
  * Resolves who is calling and what the model budget allows, before the
- * function's input is parsed. The bearer token exists for the live preview,
- * where the app runs in an iframe with partitioned cookies. A signed-in tab
- * also sends the account it shows, and the server refuses the call when the
- * session now belongs to another account, as `authMiddleware` does.
+ * function's input is parsed. A signed-in tab sends the account it shows, and
+ * the server refuses the call when the session now belongs to another account,
+ * as `authMiddleware` does.
  */
 function llmMiddlewareFor(options: LlmAccessOptions) {
   return createMiddleware({ type: "function" })
     .client(async ({ next }) => {
       const identity = identitySnapshot();
       if (identity.locked) throw new Error(ACCOUNT_CHANGED);
-      const { getBearerToken } = await import("@/lib/auth/client");
       const result = await next({
         sendContext: {
-          bearerToken: getBearerToken() ?? undefined,
           expectedAccountId: identity.accountId ?? undefined,
         },
       });
@@ -43,7 +40,7 @@ function llmMiddlewareFor(options: LlmAccessOptions) {
     })
     .server(async ({ next, context }) => {
       const { resolveLlmAccess } = await import("./guard.server");
-      const llm = await resolveLlmAccess(context.bearerToken, options, context.expectedAccountId);
+      const llm = await resolveLlmAccess(options, context.expectedAccountId);
       return next({ context: { llm } });
     });
 }

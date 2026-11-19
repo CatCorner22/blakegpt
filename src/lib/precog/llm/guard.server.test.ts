@@ -8,7 +8,7 @@ const seams = vi.hoisted(() => ({
   sameSite: vi.fn(),
   getSessionUser: vi.fn(),
   checkDailyBudget: vi.fn(),
-  grokChat: vi.fn(),
+  modelChat: vi.fn(),
   aiPlan: "free" as "free" | "paid",
   loadEntitlements: vi.fn(),
   reportServerError: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock("./daily-usage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./daily-usage")>()),
   checkDailyBudget: seams.checkDailyBudget,
 }));
-vi.mock("./grok-client.server", () => ({ grokChat: seams.grokChat }));
+vi.mock("./model-client.server", () => ({ modelChat: seams.modelChat }));
 vi.mock("./usage-log.server", () => ({ insertUsage: seams.insertUsage }));
 vi.mock("@/lib/precog/firm/entitlements.server", () => ({
   loadEntitlements: seams.loadEntitlements,
@@ -64,12 +64,13 @@ beforeEach(() => {
   seams.sameSite.mockReset();
   seams.getSessionUser.mockReset().mockImplementation(async () => seams.user);
   seams.checkDailyBudget.mockReset().mockResolvedValue("allowed");
-  seams.grokChat.mockReset().mockResolvedValue({ text: "brief", model: "grok" });
+  seams.modelChat.mockReset().mockResolvedValue({ text: "brief", model: "model" });
   seams.aiPlan = "free";
   seams.loadEntitlements.mockReset().mockImplementation(async () => ({ aiPlan: seams.aiPlan }));
   seams.reportServerError.mockReset().mockResolvedValue(undefined);
   seams.insertUsage.mockReset().mockResolvedValue(undefined);
-  vi.stubEnv("XAI_API_KEY", "key");
+  vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
+  vi.stubEnv("PRECOG_LLM_API_KEY", "key");
   vi.stubEnv("DATABASE_URL", "postgres://db");
 });
 
@@ -82,15 +83,15 @@ describe("resolveLlmAccess", () => {
     const { LLM_LIMITS } = await import("./rate-limit");
     const { resolveLlmAccess } = await guard();
     for (let i = 0; i <= LLM_LIMITS.perIp.limit; i++) {
-      await resolveLlmAccess(undefined, { deterministic: true });
+      await resolveLlmAccess({ deterministic: true });
     }
     for (let i = 0; i < LLM_LIMITS.anonymousHeavyPerIp.limit; i++) {
-      await resolveLlmAccess(undefined, { heavy: true });
+      await resolveLlmAccess({ heavy: true });
     }
-    await expect(resolveLlmAccess(undefined, { heavy: true })).rejects.toMatchObject({
+    await expect(resolveLlmAccess({ heavy: true })).rejects.toMatchObject({
       status: 429,
     });
-    await expect(resolveLlmAccess(undefined, { deterministic: true })).resolves.toMatchObject({
+    await expect(resolveLlmAccess({ deterministic: true })).resolves.toMatchObject({
       userId: null,
     });
   });
@@ -116,35 +117,35 @@ describe("resolveLlmAccess", () => {
     const { resolveLlmAccess } = await guard();
     seams.authConfigured = false;
     vi.stubEnv("DATABASE_URL", "");
-    await expect(resolveLlmAccess()).resolves.toEqual({ userId: "dev-user", grok: "allowed" });
+    await expect(resolveLlmAccess()).resolves.toEqual({ userId: "dev-user", model: "allowed" });
     vi.stubEnv("DATABASE_URL", "postgres://db");
-    await expect(resolveLlmAccess()).resolves.toEqual({ userId: null, grok: "unauthenticated" });
+    await expect(resolveLlmAccess()).resolves.toEqual({ userId: null, model: "unauthenticated" });
   });
 
   it("says there is no key before it says the caller is signed out", async () => {
     const { resolveLlmAccess } = await guard();
-    vi.stubEnv("XAI_API_KEY", "");
-    await expect(resolveLlmAccess()).resolves.toEqual({ userId: null, grok: "no_api_key" });
-    vi.stubEnv("XAI_API_KEY", "key");
-    await expect(resolveLlmAccess()).resolves.toEqual({ userId: null, grok: "unauthenticated" });
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "");
+    await expect(resolveLlmAccess()).resolves.toEqual({ userId: null, model: "not_configured" });
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
+    await expect(resolveLlmAccess()).resolves.toEqual({ userId: null, model: "unauthenticated" });
   });
 
   it("does not spend a heavy slot on an unmetered local call", async () => {
     const { resolveLlmAccess } = await guard();
-    for (let i = 0; i < 4; i++) await resolveLlmAccess(undefined, { unmetered: true });
-    await expect(resolveLlmAccess(undefined, { heavy: true })).resolves.toEqual({
+    for (let i = 0; i < 4; i++) await resolveLlmAccess({ unmetered: true });
+    await expect(resolveLlmAccess({ heavy: true })).resolves.toEqual({
       userId: null,
-      grok: "unauthenticated",
+      model: "unauthenticated",
     });
   });
 
   it("does not spend a signed-in minute slot on an unmetered local call", async () => {
     const { resolveLlmAccess } = await guard();
     seams.user = { id: "u-local" };
-    for (let i = 0; i < 10; i++) await resolveLlmAccess(undefined, { unmetered: true });
-    await expect(resolveLlmAccess(undefined, { heavy: true })).resolves.toEqual({
+    for (let i = 0; i < 10; i++) await resolveLlmAccess({ unmetered: true });
+    await expect(resolveLlmAccess({ heavy: true })).resolves.toEqual({
       userId: "u-local",
-      grok: "allowed",
+      model: "allowed",
     });
   });
 
@@ -152,8 +153,8 @@ describe("resolveLlmAccess", () => {
     const { resolveLlmAccess } = await guard();
     const { LLM_LIMITS } = await import("./rate-limit");
     for (let i = 0; i < LLM_LIMITS.anonymousHeavyPerIp.limit; i++)
-      await resolveLlmAccess(undefined, { heavy: true });
-    await expect(resolveLlmAccess(undefined, { heavy: true })).rejects.toMatchObject({
+      await resolveLlmAccess({ heavy: true });
+    await expect(resolveLlmAccess({ heavy: true })).rejects.toMatchObject({
       status: 429,
       message: "Too many requests — sign in, or try again in a minute.",
     });
@@ -162,7 +163,7 @@ describe("resolveLlmAccess", () => {
   it("allows a signed-in caller without spending the daily budget", async () => {
     const { resolveLlmAccess } = await guard();
     seams.user = { id: "u1" };
-    await expect(resolveLlmAccess()).resolves.toEqual({ userId: "u1", grok: "allowed" });
+    await expect(resolveLlmAccess()).resolves.toEqual({ userId: "u1", model: "allowed" });
     expect(seams.checkDailyBudget).not.toHaveBeenCalled();
   });
 
@@ -170,18 +171,18 @@ describe("resolveLlmAccess", () => {
     const { resolveLlmAccess } = await guard();
     seams.user = { id: "u2" };
     for (let i = 0; i < 10; i++) await resolveLlmAccess();
-    await expect(resolveLlmAccess()).resolves.toEqual({ userId: "u2", grok: "rate_limited" });
-    await expect(resolveLlmAccess(undefined, { heavy: true })).rejects.toMatchObject({
+    await expect(resolveLlmAccess()).resolves.toEqual({ userId: "u2", model: "rate_limited" });
+    await expect(resolveLlmAccess({ heavy: true })).rejects.toMatchObject({
       status: 429,
     });
   });
 
   it("caps a signed-in caller's heavy runs even when no key is configured", async () => {
     const { resolveLlmAccess } = await guard();
-    vi.stubEnv("XAI_API_KEY", "");
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "");
     seams.user = { id: "u3" };
-    for (let i = 0; i < 10; i++) await resolveLlmAccess(undefined, { heavy: true });
-    await expect(resolveLlmAccess(undefined, { heavy: true })).rejects.toMatchObject({
+    for (let i = 0; i < 10; i++) await resolveLlmAccess({ heavy: true });
+    await expect(resolveLlmAccess({ heavy: true })).rejects.toMatchObject({
       status: 429,
     });
   });
@@ -189,12 +190,12 @@ describe("resolveLlmAccess", () => {
   it("refuses a call from a tab that shows a different account than the session", async () => {
     const { resolveLlmAccess } = await guard();
     seams.user = { id: "account-b" };
-    await expect(resolveLlmAccess(undefined, {}, "account-a")).rejects.toMatchObject({
+    await expect(resolveLlmAccess({}, "account-a")).rejects.toMatchObject({
       status: 409,
     });
-    await expect(resolveLlmAccess(undefined, {}, "account-b")).resolves.toEqual({
+    await expect(resolveLlmAccess({}, "account-b")).resolves.toEqual({
       userId: "account-b",
-      grok: "allowed",
+      model: "allowed",
     });
   });
 });
@@ -202,12 +203,12 @@ describe("resolveLlmAccess", () => {
 describe("callModel", () => {
   it("spends one daily unit, then calls the model", async () => {
     const { callModel } = await guard();
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).resolves.toEqual({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).resolves.toEqual({
       text: "brief",
-      model: "grok",
+      model: "model",
     });
     expect(seams.checkDailyBudget).toHaveBeenCalledTimes(1);
-    expect(seams.grokChat).toHaveBeenCalledWith("key", {
+    expect(seams.modelChat).toHaveBeenCalledWith("key", {
       ...CHAT,
       onUsage: expect.any(Function),
     });
@@ -215,33 +216,33 @@ describe("callModel", () => {
 
   it("spends nothing and calls nothing for a request that may not use the model", async () => {
     const { callModel } = await guard();
-    for (const grok of ["unauthenticated", "rate_limited", "no_api_key"] as const) {
-      await expect(callModel({ userId: "u1", grok }, CHAT)).resolves.toBeNull();
+    for (const model of ["unauthenticated", "rate_limited", "not_configured"] as const) {
+      await expect(callModel({ userId: "u1", model }, CHAT)).resolves.toBeNull();
     }
     expect(seams.checkDailyBudget).not.toHaveBeenCalled();
-    expect(seams.grokChat).not.toHaveBeenCalled();
+    expect(seams.modelChat).not.toHaveBeenCalled();
   });
 
   it("does not call the model when the daily budget cannot be read", async () => {
     const { callModel } = await guard();
     seams.checkDailyBudget.mockResolvedValue("unavailable");
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).resolves.toBeNull();
-    expect(seams.grokChat).not.toHaveBeenCalled();
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).resolves.toBeNull();
+    expect(seams.modelChat).not.toHaveBeenCalled();
   });
 
   it("says the daily limit is reached, without calling the model, once the budget is spent", async () => {
     const { callModel } = await guard();
     const { DailyLimitReached } = await import("./types");
     seams.checkDailyBudget.mockResolvedValue("spent");
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).rejects.toBeInstanceOf(
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).rejects.toBeInstanceOf(
       DailyLimitReached,
     );
-    expect(seams.grokChat).not.toHaveBeenCalled();
+    expect(seams.modelChat).not.toHaveBeenCalled();
   });
 
   it("spends the budget under the caller's plan: free by default, paid for a paid firm", async () => {
     const { callModel } = await guard();
-    await callModel({ userId: "u1", grok: "allowed" }, CHAT);
+    await callModel({ userId: "u1", model: "allowed" }, CHAT);
     expect(seams.loadEntitlements.mock.calls[0]?.[1]).toBe("u1");
     expect(seams.checkDailyBudget).toHaveBeenLastCalledWith(
       expect.any(Function),
@@ -252,7 +253,7 @@ describe("callModel", () => {
       "free",
     );
     seams.aiPlan = "paid";
-    await callModel({ userId: "u2", grok: "allowed" }, CHAT);
+    await callModel({ userId: "u2", model: "allowed" }, CHAT);
     expect(seams.checkDailyBudget).toHaveBeenLastCalledWith(
       expect.any(Function),
       "u2",
@@ -267,9 +268,9 @@ describe("callModel", () => {
     const { callModel } = await guard();
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     seams.loadEntitlements.mockRejectedValue(new Error("down"));
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).resolves.toEqual({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).resolves.toEqual({
       text: "brief",
-      model: "grok",
+      model: "model",
     });
     expect(seams.checkDailyBudget.mock.calls[0]?.[5]).toBe("free");
     quiet.mockRestore();
@@ -278,24 +279,24 @@ describe("callModel", () => {
   it("names the ceiling met and the figures in force on the thrown error", async () => {
     const { callModel } = await guard();
     seams.checkDailyBudget.mockResolvedValue("spent");
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).rejects.toMatchObject({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).rejects.toMatchObject({
       dailyLimit: { scope: "user", plan: "free", limit: 100, paidLimit: 400 },
     });
     seams.aiPlan = "paid";
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).rejects.toMatchObject({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).rejects.toMatchObject({
       dailyLimit: { scope: "user", plan: "paid", limit: 400, paidLimit: 400 },
     });
     seams.checkDailyBudget.mockResolvedValue("spent-global");
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).rejects.toMatchObject({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).rejects.toMatchObject({
       dailyLimit: { scope: "global", plan: "paid", limit: 400, paidLimit: 400 },
     });
     // A pool the caller shares (address, unverified, free) is its own scope,
     // so the sentence does not claim the caller's own figure was reached.
     seams.checkDailyBudget.mockResolvedValue("spent-pool");
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).rejects.toMatchObject({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).rejects.toMatchObject({
       dailyLimit: { scope: "pool", plan: "paid", limit: 400, paidLimit: 400 },
     });
-    expect(seams.grokChat).not.toHaveBeenCalled();
+    expect(seams.modelChat).not.toHaveBeenCalled();
     expect(seams.reportServerError).toHaveBeenCalledTimes(1);
   });
 
@@ -303,7 +304,7 @@ describe("callModel", () => {
     const { callModel } = await guard();
     seams.checkDailyBudget.mockResolvedValue("spent-global");
     for (let i = 0; i < 3; i += 1) {
-      await expect(callModel({ userId: `u${i}`, grok: "allowed" }, CHAT)).rejects.toMatchObject({
+      await expect(callModel({ userId: `u${i}`, model: "allowed" }, CHAT)).rejects.toMatchObject({
         dailyLimit: { scope: "global" },
       });
     }
@@ -314,7 +315,7 @@ describe("callModel", () => {
     );
     // The caller's own ceiling is the everyday case and is not reported.
     seams.checkDailyBudget.mockResolvedValue("spent");
-    await expect(callModel({ userId: "u9", grok: "allowed" }, CHAT)).rejects.toMatchObject({
+    await expect(callModel({ userId: "u9", model: "allowed" }, CHAT)).rejects.toMatchObject({
       dailyLimit: { scope: "user" },
     });
     expect(seams.reportServerError).toHaveBeenCalledTimes(1);
@@ -332,11 +333,11 @@ describe("callModel", () => {
 
   it("records the call's usage before it answers, without the text", async () => {
     const { callModel } = await guard();
-    seams.grokChat.mockImplementation(async (_key, opts) => {
+    seams.modelChat.mockImplementation(async (_key, opts) => {
       opts.onUsage(LINE);
       return { text: "brief", model: "m1" };
     });
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).resolves.toEqual({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).resolves.toEqual({
       text: "brief",
       model: "m1",
     });
@@ -353,32 +354,32 @@ describe("callModel", () => {
 
   it("records every attempt when a rejected format is retried", async () => {
     const { callModel } = await guard();
-    seams.grokChat.mockImplementation(async (_key, opts) => {
+    seams.modelChat.mockImplementation(async (_key, opts) => {
       opts.onUsage({ ...LINE, promptTokens: null, completionTokens: null, outcome: "http_400" });
       opts.onUsage(LINE);
       return { text: "brief", model: "m1" };
     });
-    await callModel({ userId: "u1", grok: "allowed" }, CHAT);
+    await callModel({ userId: "u1", model: "allowed" }, CHAT);
     expect(seams.insertUsage.mock.calls.map((call) => call[1].outcome)).toEqual(["http_400", "ok"]);
   });
 
   it("records the local development account with no account, which has no user row", async () => {
     const { callModel } = await guard();
-    seams.grokChat.mockImplementation(async (_key, opts) => {
+    seams.modelChat.mockImplementation(async (_key, opts) => {
       opts.onUsage(LINE);
       return { text: "brief", model: "m1" };
     });
-    await callModel({ userId: "dev-user", grok: "allowed" }, CHAT);
+    await callModel({ userId: "dev-user", model: "allowed" }, CHAT);
     expect(seams.insertUsage.mock.calls[0]?.[1]).toMatchObject({ userId: null, feature: "coach" });
   });
 
   it("records a failed call with its outcome and null counts", async () => {
     const { callModel } = await guard();
-    seams.grokChat.mockImplementation(async (_key, opts) => {
+    seams.modelChat.mockImplementation(async (_key, opts) => {
       opts.onUsage({ ...LINE, promptTokens: null, completionTokens: null, outcome: "timeout" });
       return null;
     });
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).resolves.toBeNull();
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).resolves.toBeNull();
     expect(seams.insertUsage.mock.calls[0]?.[1]).toMatchObject({
       outcome: "timeout",
       promptTokens: null,
@@ -388,12 +389,12 @@ describe("callModel", () => {
 
   it("never fails the answer when the record cannot be written, and reports it", async () => {
     const { callModel } = await guard();
-    seams.grokChat.mockImplementation(async (_key, opts) => {
+    seams.modelChat.mockImplementation(async (_key, opts) => {
       opts.onUsage(LINE);
       return { text: "brief", model: "m1" };
     });
     seams.insertUsage.mockRejectedValue(new Error("db down"));
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).resolves.toEqual({
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).resolves.toEqual({
       text: "brief",
       model: "m1",
     });
@@ -406,8 +407,8 @@ describe("callModel", () => {
   it("records nothing for a call it never made", async () => {
     const { callModel } = await guard();
     seams.checkDailyBudget.mockResolvedValue("spent");
-    await expect(callModel({ userId: "u1", grok: "allowed" }, CHAT)).rejects.toBeTruthy();
-    await callModel({ userId: "u1", grok: "rate_limited" }, CHAT);
+    await expect(callModel({ userId: "u1", model: "allowed" }, CHAT)).rejects.toBeTruthy();
+    await callModel({ userId: "u1", model: "rate_limited" }, CHAT);
     expect(seams.insertUsage).not.toHaveBeenCalled();
   });
 });

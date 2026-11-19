@@ -2,7 +2,7 @@
  * Live model evaluation for GPU testing. Skipped unless PRECOG_LLM_EVAL=1, so
  * `npm test` never calls a model. `npm run eval:llm` sends Voyager's real
  * statement-selection prompt to the endpoint named by PRECOG_LLM_BASE_URL /
- * PRECOG_LLM_MODEL (or xAI when unset), runs it through Precog's own parser,
+ * PRECOG_LLM_MODEL (or the configured server when unset), runs it through Precog's own parser,
  * and writes a JSON report with status, selections, tokens and latency per
  * case. See docs/GPU_TESTING.md.
  */
@@ -12,19 +12,22 @@ import { describe, expect, it, vi } from "vitest";
 import { pioneerProfileFrom } from "../coach/pioneer-profile";
 import { isIndustryId } from "../industry";
 import { briefClaims } from "./brief-selection";
-import { runGrokAgentLoop, runLocalAgentLoop, type ModelStatus } from "./agent-loop";
-import type { GrokUsageLine } from "./grok-client.server";
+import { runModelAgentLoop, runLocalAgentLoop, type ModelStatus } from "./agent-loop";
+import type { ModelUsageLine } from "./model-client.server";
 import { modelEndpoint } from "./model-endpoint";
 
-const usage = vi.hoisted(() => [] as GrokUsageLine[]);
+const usage = vi.hoisted(() => [] as ModelUsageLine[]);
 const replies = vi.hoisted(() => [] as string[]);
 
 vi.mock("./guard.server", async () => {
-  const { grokChat } = await import("./grok-client.server");
+  const { modelChat } = await import("./model-client.server");
   const { modelApiKey } = await import("./model-endpoint");
   return {
-    callModel: vi.fn(async (_access: unknown, opts: Parameters<typeof grokChat>[1]) => {
-      const reply = await grokChat(modelApiKey(), { ...opts, onUsage: (line) => usage.push(line) });
+    callModel: vi.fn(async (_access: unknown, opts: Parameters<typeof modelChat>[1]) => {
+      const reply = await modelChat(modelApiKey(), {
+        ...opts,
+        onUsage: (line) => usage.push(line),
+      });
       replies.push(reply?.text ?? "");
       return reply;
     }),
@@ -56,7 +59,7 @@ interface CaseResult {
   validIds: boolean;
   reply: string;
   latencyMs: number;
-  outcome: GrokUsageLine["outcome"] | "not-called";
+  outcome: ModelUsageLine["outcome"] | "not-called";
   promptTokens: number | null;
   completionTokens: number | null;
 }
@@ -78,9 +81,10 @@ describe.skipIf(!enabled)("live model evaluation", () => {
     "selects only real statements, resists injected instructions and reports latency",
     async () => {
       const endpoint = modelEndpoint();
-      expect(endpoint.apiKey, "set PRECOG_LLM_API_KEY (or XAI_API_KEY for xAI)").not.toBe("");
+      if (!endpoint) throw new Error("set PRECOG_LLM_BASE_URL");
+      expect(endpoint.apiKey, "set PRECOG_LLM_API_KEY").not.toBe("");
       const results: CaseResult[] = [];
-      const access = { userId: "eval-owner", grok: "allowed" as const };
+      const access = { userId: "eval-owner", model: "allowed" as const };
 
       for (const industry of industries) {
         const profile = pioneerProfileFrom({ industry });
@@ -93,7 +97,7 @@ describe.skipIf(!enabled)("live model evaluation", () => {
           const claims = briefClaims(local.brief);
           const before = usage.length;
           const repliesBefore = replies.length;
-          const run = await runGrokAgentLoop(local, access);
+          const run = await runModelAgentLoop(local, access);
           const line = usage[before];
           const ids = [...(run.highlightIds ?? [])];
           const byId = new Map(claims.map((c) => [c.id, c.text]));
@@ -120,7 +124,6 @@ describe.skipIf(!enabled)("live model evaluation", () => {
       const completion = called.reduce((n, r) => n + (r.completionTokens ?? 0), 0);
       const seconds = latencies.reduce((n, ms) => n + ms, 0) / 1000;
       const summary = {
-        provider: endpoint.provider,
         model: endpoint.model,
         url: endpoint.url,
         cases: results.length,

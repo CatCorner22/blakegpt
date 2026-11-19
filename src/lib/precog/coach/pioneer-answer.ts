@@ -1,4 +1,4 @@
-import { runGrokAgentLoop, type ModelOutcome, type ModelStatus } from "../llm/agent-loop";
+import { runModelAgentLoop, type ModelOutcome, type ModelStatus } from "../llm/agent-loop";
 import { briefClaims } from "../llm/brief-selection";
 import {
   chooseHighlightIds,
@@ -13,7 +13,7 @@ import type {
   DailyLimitInfo,
   DecisionLink,
   EvidenceRef,
-  GrokAccess,
+  ModelAccess,
 } from "../llm/types";
 import { invalidRequest } from "@/lib/request-errors";
 import { resolveClientDate } from "../dates";
@@ -84,7 +84,7 @@ type PioneerCoachError = {
 export const PIONEER_FAILED_MESSAGE = "Voyager could not answer just now. Try again in a moment.";
 
 /** The warning when the model was asked and gave no answer. */
-export const MODEL_FAILED_WARNING = "Grok did not answer, so Precog's rules wrote this brief.";
+export const MODEL_FAILED_WARNING = "Voyager did not answer, so Precog's rules wrote this brief.";
 
 /**
  * The warning when today's model budget is used up; it lasts until tomorrow.
@@ -135,18 +135,18 @@ export async function answerPioneer(
   data: PioneerRequestData,
   access: LlmAccess,
 ): Promise<PioneerCoachResult | PioneerCoachError> {
-  const grok = access.grok;
+  const model = access.model;
   const question = data.question || DEFAULT_COACH_QUESTION;
   const ctx: ToolContext = { profile: data.profile, question, today: data.today };
 
   try {
     const local = localBrief(question, ctx, data.profile);
     const result =
-      grok === "allowed"
-        ? await runGrokAgentLoop(local, access)
+      model === "allowed"
+        ? await runModelAgentLoop(local, access)
         : { ...local, modelStatus: "not-asked" as const, highlightIds: [] as readonly string[] };
     const warnings = [...result.brief.chickenLittleWarnings];
-    const why = modelWarning(grok, result);
+    const why = modelWarning(model, result);
     if (why) warnings.push(why);
 
     return {
@@ -197,17 +197,17 @@ export async function answerPioneer(
  * the owner can do, so no warning: the screen's status line already says the
  * brief was built by this app's rules.
  */
-function modelWarning(grok: GrokAccess, outcome: ModelOutcome): string | null {
+function modelWarning(model: ModelAccess, outcome: ModelOutcome): string | null {
   const status = outcome.modelStatus;
-  if (grok === "unauthenticated") {
+  if (model === "unauthenticated") {
     return "Sign in to let Voyager rank the most relevant moves. Precog's rules wrote this brief.";
   }
-  if (grok === "rate_limited") {
+  if (model === "rate_limited") {
     return "Voyager is busy right now. Precog's rules wrote this brief.";
   }
   if (status === "daily-limit" && outcome.dailyLimit) return dailyLimitWarning(outcome.dailyLimit);
   if (status === "rejected") {
-    return "Grok's reply failed Precog's checks and is not shown. Precog's rules wrote this brief.";
+    return "Voyager's reply failed Precog's checks and is not shown. Precog's rules wrote this brief.";
   }
   return status === "failed" ? MODEL_FAILED_WARNING : null;
 }
@@ -216,7 +216,7 @@ function modelWarning(grok: GrokAccess, outcome: ModelOutcome): string | null {
 export async function answerPioneerRules(
   data: PioneerRequestData,
 ): Promise<PioneerCoachResult | PioneerCoachError> {
-  return answerPioneer(data, { userId: null, grok: "no_api_key" });
+  return answerPioneer(data, { userId: null, model: "not_configured" });
 }
 
 /** Ids only. The screen applies them when the fingerprint still matches the painted brief. */
@@ -236,40 +236,40 @@ export async function selectPioneerHighlights(
     }
   | PioneerCoachError
 > {
-  const grok = access.grok;
+  const model = access.model;
   const question = data.question || DEFAULT_COACH_QUESTION;
   const ctx: ToolContext = { profile: data.profile, question, today: data.today };
   try {
     const local = localBrief(question, ctx, data.profile);
     const claims = briefClaims(local.brief);
     // The Hugging Face unit is spent first; then both models run at once, and
-    // Grok's unit is spent inside callModel before Grok is called.
-    const hfAllowed = await hfMayRank(access, grok);
+    // Voyager's unit is spent inside callModel before Voyager is called.
+    const hfAllowed = await hfMayRank(access, model);
     const [hf, result] = await Promise.all([
       hfAllowed
-        ? rankClaimsWithHuggingFace(question, claims, fetch, { chat: grok !== "allowed" })
+        ? rankClaimsWithHuggingFace(question, claims, fetch, { chat: model !== "allowed" })
         : null,
-      grok === "allowed"
-        ? runGrokAgentLoop(local, access)
+      model === "allowed"
+        ? runModelAgentLoop(local, access)
         : { ...local, modelStatus: "not-asked" as const, highlightIds: [] as readonly string[] },
     ]);
-    const grokIds = result.highlightIds ?? [];
-    // An empty selection is Grok's answer that nothing is relevant: nothing is marked.
-    const grokFoundNone = result.modelStatus === "answered" && grokIds.length === 0;
-    const chosen = grokFoundNone
+    const modelIds = result.highlightIds ?? [];
+    // An empty selection is Voyager's answer that nothing is relevant: nothing is marked.
+    const modelFoundNone = result.modelStatus === "answered" && modelIds.length === 0;
+    const chosen = modelFoundNone
       ? null
       : chooseHighlightIds({
           claimIds: claims.map((claim) => claim.id),
           embedScores: hf?.scores ?? null,
-          llmIds: grokIds.length > 0 ? grokIds : (hf?.llmIds ?? null),
+          llmIds: modelIds.length > 0 ? modelIds : (hf?.llmIds ?? null),
         });
     const ranker = chosen
-      ? rankerFor(chosen.source, grokIds.length > 0, Boolean(hf?.scores))
+      ? rankerFor(chosen.source, modelIds.length > 0, Boolean(hf?.scores))
       : undefined;
-    // Ids Grok picked that Precog's checks then dropped are a rejected reply, not an answer.
+    // Ids Voyager picked that Precog's checks then dropped are a rejected reply, not an answer.
     const modelStatus: ModelStatus = chosen
       ? "answered"
-      : grokIds.length > 0
+      : modelIds.length > 0
         ? "rejected"
         : result.modelStatus;
     return {
@@ -285,7 +285,7 @@ export async function selectPioneerHighlights(
             : undefined,
       ranker,
       source: result.source,
-      warning: modelWarning(grok, { ...result, modelStatus }),
+      warning: modelWarning(model, { ...result, modelStatus }),
     };
   } catch (e) {
     console.error("[voyager] highlight failed", e);
@@ -295,19 +295,19 @@ export async function selectPioneerHighlights(
 
 function rankerFor(
   source: "huggingface" | "llm" | "both",
-  grokPicked: boolean,
+  modelPicked: boolean,
   embedded: boolean,
 ): RankerName {
-  if (source === "huggingface" || (embedded && !grokPicked)) return "huggingface";
-  if (source === "both" && grokPicked) return "both";
+  if (source === "huggingface" || (embedded && !modelPicked)) return "huggingface";
+  if (source === "both" && modelPicked) return "both";
   if (source === "both") return "huggingface";
-  return "grok";
+  return "model";
 }
 
-/** Hugging Face runs for a signed-in caller and spends one daily unit, including when Grok will also run. */
-async function hfMayRank(access: LlmAccess, grok: GrokAccess): Promise<boolean> {
+/** Hugging Face runs for a signed-in caller and spends one daily unit, including when Voyager will also run. */
+async function hfMayRank(access: LlmAccess, model: ModelAccess): Promise<boolean> {
   if (!access.userId || !process.env.HF_TOKEN?.trim()) return false;
-  if (grok === "unauthenticated" || grok === "rate_limited") return false;
+  if (model === "unauthenticated" || model === "rate_limited") return false;
   const { spendCallerDailyUnit } = await import("../llm/guard.server");
   return (await spendCallerDailyUnit(access.userId)).budget === "allowed";
 }

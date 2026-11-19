@@ -320,9 +320,9 @@ export function ControlReport({
   );
 
   return (
-    <div className="report min-h-[calc(100dvh-var(--grok-banner-h,0px))] bg-white text-neutral-900">
+    <div className="report min-h-dvh bg-white text-neutral-900">
       {!shared && (
-        <div className="print:hidden sticky top-[var(--grok-banner-h,0px)] z-10 border-b border-neutral-200 bg-white/95 backdrop-blur">
+        <div className="print:hidden sticky top-0 z-10 border-b border-neutral-200 bg-white/95 backdrop-blur">
           <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-6 py-3">
             <Link
               to="/"

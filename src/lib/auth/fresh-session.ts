@@ -38,8 +38,7 @@ export function sessionIsFresh(
  * Throws RequestError(403, message) unless the caller's session began within
  * `minutes`. `message` tells the person what to do, for example "For your
  * safety, sign in again, then delete your account." Call it after
- * authMiddleware, passing the verified `context.userId` and the
- * `context.bearerToken` that middleware forwards in the live preview.
+ * authMiddleware, passing the verified `context.userId`.
  * Returns the signed-in address, for a confirmation email.
  *
  * With auth turned off (VITE_AUTH_ENABLED=false, no database) there is no
@@ -48,19 +47,16 @@ export function sessionIsFresh(
 export async function requireFreshSession(options: {
   userId: string;
   message: string;
-  bearerToken?: string;
   minutes?: number;
   now?: Date;
 }): Promise<{ email: string | null }> {
   if (!authConfigured) return { email: null };
   const request = getRequest();
   if (!request) throw new UnauthorizedError();
-  let headers = request.headers;
-  if (options.bearerToken) {
-    headers = new Headers(request.headers);
-    headers.set("Authorization", `Bearer ${options.bearerToken}`);
-  }
-  const session = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
+  const session = await auth.api.getSession({
+    headers: request.headers,
+    query: { disableCookieCache: true },
+  });
   if (!session?.user || session.user.id !== options.userId) throw new UnauthorizedError();
   if (!sessionIsFresh(session.session.createdAt, options.minutes, options.now)) {
     throw new RequestError(403, options.message);

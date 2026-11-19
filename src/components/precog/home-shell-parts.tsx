@@ -26,8 +26,8 @@ export interface ShellTab {
  * The sections. Up to 1024px a horizontal tab strip that tells the user there
  * is more: a fade on whichever edge still has hidden tabs, and the active tab
  * scrolled into view so the tabs past the viewport on a narrow screen are
- * discoverable. From 1024px a fixed left rail under the "Created with Grok"
- * bar, listing every section; the fades and the trailing menu hide.
+ * discoverable. From 1024px a fixed left rail lists every section; the fades
+ * and the trailing menu hide.
  */
 export function TabStrip({
   activeId,
@@ -84,7 +84,7 @@ export function TabStrip({
         // On a touch screen every tab is at least 44px tall.
         className={cn(
           "relative mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pb-3 sm:px-6 [scrollbar-width:thin] pointer-coarse:[&_[role=tab]]:min-h-11",
-          "lg:fixed lg:top-[var(--grok-banner-h,0px)] lg:bottom-0 lg:left-0 lg:mx-0 lg:w-60 lg:max-w-none lg:flex-col lg:gap-0.5 lg:overflow-x-hidden lg:overflow-y-auto lg:border-r lg:border-border lg:bg-surface lg:px-3 lg:py-4",
+          "lg:fixed lg:top-0 lg:bottom-0 lg:left-0 lg:mx-0 lg:w-60 lg:max-w-none lg:flex-col lg:gap-0.5 lg:overflow-x-hidden lg:overflow-y-auto lg:border-r lg:border-border lg:bg-surface lg:px-3 lg:py-4",
           trailing && "pr-36 sm:pr-40 lg:pr-3",
         )}
       >
@@ -125,9 +125,8 @@ export interface ShellRouteLink {
  * Where a fixed-position menu goes so it hangs 4px under `trigger`, flush
  * with its right edge. A fixed element is placed against the viewport, unless
  * an ancestor has a transform, filter, backdrop-filter or similar: then that
- * ancestor's padding box is the frame. The sticky home header has
- * backdrop-blur and sits below the "Created with Grok" bar when that bar
- * shows, so window coordinates would put the menu one bar-height too low.
+ * ancestor's padding box is the frame. The sticky home header has backdrop-blur,
+ * so window coordinates would place the menu relative to the viewport instead.
  * The right edge is taken from the frame's client width, which leaves out a
  * vertical scrollbar, where window.innerWidth includes it.
  */

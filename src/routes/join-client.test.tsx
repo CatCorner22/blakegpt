@@ -52,12 +52,10 @@ describe("the client invitation page", () => {
     expect(source).toContain("{state.businessName}</h1>");
   });
 
-  it("asks a signed-out visitor to sign in with Google or the invited address, offering Google alone", () => {
-    expect(texts.GRANT_CONFIRM).toBe(
-      "Sign in with Google or with the email address the invitation was sent to.",
-    );
+  it("asks a signed-out visitor to use the invited email address", () => {
+    expect(texts.GRANT_CONFIRM).toBe("Sign in with the email address the invitation was sent to.");
     expect(source).toContain("{GRANT_CONFIRM}");
-    expect(source).toContain('GROK_PROVIDERS.filter((p) => p.providerId === "grok-google")');
+    expect(source).toContain('to="/login"');
   });
 
   it("accepts with one button and says the business joined", () => {

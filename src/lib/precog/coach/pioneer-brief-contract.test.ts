@@ -145,7 +145,7 @@ describe("Pioneer brief contract", () => {
           );
           const answer = await answerPioneer(
             { question, profile: sampleProfile(industry), today: TODAY },
-            { userId: "contract-test", grok: "no_api_key" },
+            { userId: "contract-test", model: "not_configured" },
           );
           if (!answer.ok) throw new Error(answer.error);
           expect(

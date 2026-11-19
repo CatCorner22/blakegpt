@@ -38,7 +38,7 @@ export const Route = createFileRoute("/welcome")({
 
 function WelcomePage() {
   return (
-    <main className="mx-auto min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-4xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-4xl px-6 py-10">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Precog</p>
       <div className="mt-6 grid items-center gap-8 md:grid-cols-2">
         <div>

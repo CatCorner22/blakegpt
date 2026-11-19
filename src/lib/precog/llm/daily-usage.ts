@@ -9,8 +9,8 @@ import type { Sql } from "@/lib/db";
  * ceiling, so paid accounts keep two thirds of it. An account costs nothing
  * to make, so the per-user ceiling alone would let a handful of accounts
  * spend the global one: each calling address has its own ceiling (well above
- * one user's, since an office shares one address), and accounts with neither
- * a verified email nor a Google or X sign-in share one smaller pool. Override
+ * one user's, since an office shares one address), and accounts without a
+ * verified email share one smaller pool. Override
  * with LLM_DAILY_PER_USER, LLM_DAILY_PER_USER_PAID, LLM_DAILY_GLOBAL,
  * LLM_DAILY_FREE_POOL, LLM_DAILY_PER_ADDRESS and LLM_DAILY_UNVERIFIED.
  */
@@ -93,15 +93,12 @@ export async function addressScope(address: string): Promise<string> {
 }
 
 /**
- * True when the account has a verified email or signs in with Google or X,
- * which a script cannot make for free; a bare email/password account is not.
+ * True when the account has a verified email, which a script cannot make for
+ * free.
  */
 export async function verifiedAccount(sql: Sql, userId: string): Promise<boolean> {
   const rows = await sql<{ verified: boolean }>`
-    select exists (select 1 from "user" where id = ${userId} and "emailVerified")
-      or exists (
-        select 1 from "account" where "userId" = ${userId} and "providerId" <> 'credential'
-      ) as verified
+    select exists (select 1 from "user" where id = ${userId} and "emailVerified") as verified
   `;
   return rows[0]?.verified === true;
 }

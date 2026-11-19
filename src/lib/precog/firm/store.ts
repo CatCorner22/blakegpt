@@ -14,7 +14,7 @@ import { randomHex } from "@/lib/web-crypto";
 import { revokeDepartingMemberShares } from "../share/share-store";
 import { transferBusinessesToOwner, type MovedBusiness } from "../business-store";
 import { SUPPORT_EMAIL } from "../legal/operator";
-import { TRUSTED_EMAIL, VOUCHED_EMAIL, X_ACCOUNT } from "./vouched-email";
+import { TRUSTED_EMAIL, VOUCHED_EMAIL } from "./vouched-email";
 import { withAuditBypass } from "./audit.server";
 
 /**
@@ -489,10 +489,8 @@ export function maskEmail(email: string): string {
  *   - "match": its address is confirmed and is the invited one;
  *   - "mismatch": its address is confirmed and real but another one, so the
  *     invitation is not for it;
- *   - "confirm": Precog cannot vouch for its address (an unconfirmed password
- *     sign-up, or X, whose sign-in carries a made-up address), so it cannot
- *     join: joining needs a confirmed address that is the invited one, from a
- *     Google sign-in or a confirmed email-and-password account.
+ *   - "confirm": Precog cannot vouch for its address because the email is
+ *     unconfirmed.
  */
 export type InviteFit = "match" | "mismatch" | "confirm";
 
@@ -585,7 +583,7 @@ export async function acceptInvite(
         throw new FirmMembershipError(
           fit === "mismatch"
             ? `The firm sent this invitation to ${maskEmail(invite.email)}, and you are signed in as ${accountEmail}. Sign in with the invited address, or ask the firm owner to invite ${accountEmail}.`
-            : `Precog cannot vouch for this account's address. Joining a firm needs a confirmed address that is the invited one: sign in with Google under ${maskEmail(invite.email)}, or with an email-and-password account you have confirmed, then open the invitation again.`,
+            : `Precog cannot vouch for this account's address. Joining a firm needs a confirmed address that is the invited one: sign in with the invited email address, confirm it, then open the invitation again.`,
         );
       }
       const current = await loadFirmFor(tx, userId);
@@ -1221,26 +1219,20 @@ export async function digestTokenFor(sql: Sql, userId: string): Promise<string> 
 
 /**
  * Why the weekly digest cannot reach this account's address, or null when it
- * can (TRUSTED_EMAIL, the digest's own rule): "x_only" for an account whose
- * only sign-in is X, whose address the broker makes up; "unconfirmed" for
- * any other address Precog cannot vouch for. Also null for an unknown account.
+ * can (TRUSTED_EMAIL, the digest's own rule): "unconfirmed" for an address
+ * Precog cannot vouch for. Also null for an unknown account.
  */
 export async function digestAddressProblem(
   sql: Sql,
   userId: string,
-): Promise<"x_only" | "unconfirmed" | null> {
-  const rows = await sql.query<{ trusted: boolean; x_only: boolean }>(
-    `select ${TRUSTED_EMAIL("u")} as trusted,
-      (${X_ACCOUNT("u")} and not exists (
-        select 1 from account a
-        where a."userId" = u.id and a."providerId" in ('credential', 'grok-google')
-      )) as x_only
-    from "user" u where u.id = $1`,
+): Promise<"unconfirmed" | null> {
+  const rows = await sql.query<{ trusted: boolean }>(
+    `select ${TRUSTED_EMAIL("u")} as trusted from "user" u where u.id = $1`,
     [userId],
   );
   const row = rows[0];
   if (!row || row.trusted) return null;
-  return row.x_only ? "x_only" : "unconfirmed";
+  return "unconfirmed";
 }
 
 /**

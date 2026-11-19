@@ -21,7 +21,7 @@ process.env.BETTER_AUTH_SECRET = secret;
 process.env.BETTER_AUTH_URL = "http://localhost:8089";
 process.env.VITE_AUTH_ENABLED = "true";
 for (const key of [
-  "XAI_API_KEY",
+  "PRECOG_LLM_BASE_URL",
   "QBO_CLIENT_ID",
   "QBO_CLIENT_SECRET",
   "RESEND_API_KEY",

@@ -1,4 +1,4 @@
-import { modelApiKey } from "./model-endpoint";
+import { modelEndpoint, modelApiKey } from "./model-endpoint";
 import { assertSameSiteRequest } from "@/lib/auth/isolation.server";
 import { assertExpectedAccount } from "@/lib/auth/expected-account";
 import { DEV_USER_ID, authConfigured, getSessionUser } from "@/lib/auth/verify.server";
@@ -9,19 +9,19 @@ import { reportServerError } from "@/lib/observability/report.server";
 import { loadEntitlements } from "@/lib/precog/firm/entitlements.server";
 import { checkDailyBudget, userDailyLimits, type AiPlan } from "./daily-usage";
 import {
-  grokChat,
-  type GrokChatOptions,
-  type GrokChatResult,
-  type GrokUsageLine,
-} from "./grok-client.server";
+  modelChat,
+  type ModelChatOptions,
+  type ModelChatResult,
+  type ModelUsageLine,
+} from "./model-client.server";
 import { insertUsage } from "./usage-log.server";
 import { createAnonymousHeavyGate, LLM_LIMITS, SlidingWindowLimiter } from "./rate-limit";
-import { DailyLimitReached, type DailyLimitInfo, type GrokAccess } from "./types";
+import { DailyLimitReached, type DailyLimitInfo, type ModelAccess } from "./types";
 import { RequestError } from "@/lib/request-errors";
 
 export type LlmAccess = {
   userId: string | null;
-  grok: GrokAccess;
+  model: ModelAccess;
 };
 
 class TooManyRequestsError extends RequestError {
@@ -59,7 +59,6 @@ export interface LlmAccessOptions {
  * `callModel` spends it only when a model call is actually attempted.
  */
 export async function resolveLlmAccess(
-  bearerToken?: string,
   options: LlmAccessOptions = {},
   expectedAccountId?: string,
 ): Promise<LlmAccess> {
@@ -74,12 +73,12 @@ export async function resolveLlmAccess(
   if (!authConfigured && !databaseConfigured) {
     userId = DEV_USER_ID;
   } else {
-    userId = (await getSessionUser(bearerToken))?.id ?? null;
+    userId = (await getSessionUser())?.id ?? null;
     // A tab that was signed in as one account never gets an answer, or spends
     // a budget, under another.
     if (expectedAccountId !== undefined) assertExpectedAccount(expectedAccountId, userId ?? "");
   }
-  if (options.deterministic) return { userId, grok: "no_api_key" };
+  if (options.deterministic) return { userId, model: "not_configured" };
 
   if (!options.unmetered && options.heavy && !userId) {
     const anonymous = anonymousHeavyGate(ipKey);
@@ -95,12 +94,12 @@ export async function resolveLlmAccess(
     throw new TooManyRequestsError(userResult.retryAfterMs, TRY_AGAIN);
   }
 
-  if (!modelApiKey()) return { userId, grok: "no_api_key" };
-  if (!userId) return { userId, grok: "unauthenticated" };
-  if (!options.unmetered && !userAllowed) return { userId, grok: "rate_limited" };
+  if (!modelEndpoint()) return { userId, model: "not_configured" };
+  if (!userId) return { userId, model: "unauthenticated" };
+  if (!options.unmetered && !userAllowed) return { userId, model: "rate_limited" };
   if (!options.unmetered && !globalLimiter.take("global").allowed)
-    return { userId, grok: "rate_limited" };
-  return { userId, grok: "allowed" };
+    return { userId, model: "rate_limited" };
+  return { userId, model: "allowed" };
 }
 
 /**
@@ -118,10 +117,10 @@ export async function resolveLlmAccess(
  */
 export async function callModel(
   access: LlmAccess,
-  opts: GrokChatOptions,
-): Promise<GrokChatResult | null> {
+  opts: ModelChatOptions,
+): Promise<ModelChatResult | null> {
+  if (access.model !== "allowed" || !access.userId || !modelEndpoint()) return null;
   const apiKey = modelApiKey();
-  if (access.grok !== "allowed" || !access.userId || !apiKey) return null;
   const { budget, plan } = await spendCallerDailyUnit(access.userId);
   if (budget === "allowed") return recordedCall(access.userId, apiKey, opts);
   if (budget === "unavailable") return null;
@@ -149,17 +148,17 @@ export async function spendCallerDailyUnit(userId: string): Promise<{
 async function recordedCall(
   userId: string,
   apiKey: string,
-  opts: GrokChatOptions,
-): Promise<GrokChatResult | null> {
+  opts: ModelChatOptions,
+): Promise<ModelChatResult | null> {
   // One line per attempt: a platform that rejects the requested format is
   // retried with a looser one, and each attempt is a call the API saw.
-  const lines: GrokUsageLine[] = [];
-  const keep = (line: GrokUsageLine) => {
+  const lines: ModelUsageLine[] = [];
+  const keep = (line: ModelUsageLine) => {
     lines.push(line);
     opts.onUsage?.(line);
   };
   try {
-    return await grokChat(apiKey, { ...opts, onUsage: keep });
+    return await modelChat(apiKey, { ...opts, onUsage: keep });
   } finally {
     for (const line of lines) {
       try {

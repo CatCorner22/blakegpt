@@ -1,11 +1,11 @@
 /**
  * Whole-map review: plain-English critique of the value stream.
- * Shared input shape + deterministic fallback used when Grok isn't available.
+ * Shared input shape + deterministic fallback used when Voyager isn't available.
  */
 import { HEAT_BANDS } from "../scoring/bands";
 import { HEALTH_SCALE } from "../scoring/bands";
 import { personLabel } from "../person-label";
-import type { DailyLimitInfo, GrokAccess } from "../llm/types";
+import type { DailyLimitInfo, ModelAccess } from "../llm/types";
 
 interface ReviewProcessInput {
   id: string;
@@ -42,10 +42,10 @@ interface ReviewSection {
 }
 
 export interface MapReview {
-  source: "grok" | "local";
+  source: "model" | "local";
   model?: string;
-  grokStatus?: GrokAccess;
-  /** Which daily ceiling was met, when grokStatus is "daily_limit". */
+  modelStatus?: ModelAccess;
+  /** Which daily ceiling was met, when modelStatus is "daily_limit". */
   dailyLimit?: DailyLimitInfo;
   headline: string;
   grade: "A" | "B" | "C" | "F";

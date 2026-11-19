@@ -30,7 +30,7 @@ describe("firm invitation email", () => {
     );
   });
 
-  it("says which sign-ins carry a confirmed address", () => {
+  it("asks the invitee to confirm the invited email address", () => {
     const email = renderFirmInvitation({
       firmName: "North",
       inviterName: null,
@@ -38,7 +38,7 @@ describe("firm invitation email", () => {
       link: "https://app.example/join/abc",
     });
     expect(email.text).toContain(
-      "The link works once and expires in two weeks. Sign in with Google under this address, or with an email-and-password account that has confirmed it, then open the link to join.",
+      "The link works once and expires in two weeks. Sign in with the invited email address, confirm it, then open this link to join.",
     );
   });
 });

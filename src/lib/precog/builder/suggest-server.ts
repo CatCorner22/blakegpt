@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callModel, type LlmAccess } from "../llm/guard.server";
 import { llmMiddleware } from "../llm/middleware";
-import { ownerText, parseJsonReply, withGrokFallback } from "../llm/prompt-text";
+import { ownerText, parseJsonReply, withModelFallback } from "../llm/prompt-text";
 import { OWN_TEAM_MAX } from "../onboarding/own-business";
 import { parseSuggestionInput } from "../public-inputs";
 import {
@@ -20,12 +20,12 @@ export const suggestForProcess = createServerFn({ method: "POST" })
   .validator((input: Partial<SuggestionInput>): SuggestionInput => parseSuggestionInput(input))
   .handler(async ({ data, context }): Promise<SuggestionResult> => {
     const local = suggestLocally(data);
-    return withGrokFallback(
+    return withModelFallback(
       context.llm,
       local,
       Boolean(data.processName.trim()),
       async (access) => {
-        const ai = await suggestWithGrok(data, access);
+        const ai = await suggestWithVoyager(data, access);
         return ai && padWithRules(ai, local);
       },
     );
@@ -60,7 +60,7 @@ Return ONLY a JSON object, no prose, shaped exactly:
 Rules: 3-4 risks, 2-3 ideas, 0-3 controlIds. Plain English an owner understands. Do not repeat already-listed items. Never accuse people; describe control gaps. Notes under 160 characters.`;
 }
 
-async function suggestWithGrok(
+async function suggestWithVoyager(
   input: SuggestionInput,
   access: LlmAccess,
 ): Promise<SuggestionResult | null> {
@@ -89,13 +89,13 @@ async function suggestWithGrok(
     .slice(0, 3);
   if (!risks.length && !ideas.length) return null;
   return {
-    source: "grok",
+    source: "model",
     model: response.model,
     risks,
     ideas,
     controlIds,
     rationale:
-      String(parsed.rationale ?? "").slice(0, 240) || "Grok reviewed the process description.",
+      String(parsed.rationale ?? "").slice(0, 240) || "Voyager reviewed the process description.",
   };
 }
 

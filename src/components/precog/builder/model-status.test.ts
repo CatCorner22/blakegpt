@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ruleBasedReason } from "./grok-status";
+import { ruleBasedReason } from "./model-status";
 
 describe("ruleBasedReason", () => {
-  it("says nothing when Grok answered", () => {
-    expect(ruleBasedReason("grok", "allowed")).toBeNull();
+  it("says nothing when Voyager answered", () => {
+    expect(ruleBasedReason("model", "allowed")).toBeNull();
   });
 
   it("tells the owner why the built-in rules answered", () => {
     expect(ruleBasedReason("local", "rate_limited")).toMatch(/limit/);
     expect(ruleBasedReason("local", "unauthenticated")).toMatch(/Sign in/);
-    expect(ruleBasedReason("local", "no_api_key")).toMatch(/no AI suggestions set up/);
+    expect(ruleBasedReason("local", "not_configured")).toMatch(/no AI suggestions set up/);
     expect(ruleBasedReason("local", "allowed")).toMatch(/did not answer/);
     expect(ruleBasedReason("local", "daily_limit")).toBe(
       "Precog has reached today's AI limit, so these come from built-in rules. Try again tomorrow.",
@@ -35,7 +35,7 @@ describe("ruleBasedReason", () => {
         "Precog has reached today's AI limit shared by your account and others, so these come from built-in rules. Try again tomorrow.",
       );
     }
-    // Grok answered: no reason, whatever the detail says.
-    expect(ruleBasedReason("grok", "allowed", free)).toBeNull();
+    // Voyager answered: no reason, whatever the detail says.
+    expect(ruleBasedReason("model", "allowed", free)).toBeNull();
   });
 });

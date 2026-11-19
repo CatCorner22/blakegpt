@@ -1,16 +1,16 @@
 /**
- * Helpers every server function that asks Grok shares: fencing owner-typed
+ * Helpers every server function that asks Voyager shares: fencing owner-typed
  * text, reading the JSON reply, and falling back to the local answer. Every
  * prompt wraps owner-typed text in <owner_text> (or <owner_data>) tags and
  * tells the model it is data, never instructions.
  */
-import { modelApiKey } from "./model-endpoint";
 import type { LlmAccess } from "./guard.server";
-import { DailyLimitReached, type DailyLimitInfo, type GrokAccess } from "./types";
+import { DailyLimitReached, type DailyLimitInfo, type ModelAccess } from "./types";
+import { modelEndpoint } from "./model-endpoint";
 
-/** Why an answer came from Grok or the local rules, with the ceiling met when it was today's budget. */
-export interface GrokFallbackStatus {
-  grokStatus: GrokAccess;
+/** Why an answer came from Voyager or the local rules, with the ceiling met when it was today's budget. */
+export interface ModelFallbackStatus {
+  modelStatus: ModelAccess;
   dailyLimit?: DailyLimitInfo;
 }
 
@@ -58,31 +58,31 @@ export function parseJsonReply(text: string): Record<string, unknown> | null {
 }
 
 /**
- * The local answer unless Grok is allowed, a key is set and `worthAsking`
- * holds; otherwise Grok's answer, or the local one when Grok returns nothing
+ * The local answer unless a model server is configured, the caller is allowed and `worthAsking`
+ * holds; otherwise Voyager's answer, or the local one when Voyager returns nothing
  * usable or fails. `ask` must call the model through callModel(access, ...),
  * which spends the daily budget. Either way the result carries the caller's
- * Grok status, or "daily_limit" with the ceiling met when today's model
+ * Voyager status, or "daily_limit" with the ceiling met when today's model
  * budget was used up.
  */
-export async function withGrokFallback<T extends object>(
+export async function withModelFallback<T extends object>(
   access: LlmAccess,
   local: T,
   worthAsking: boolean,
   ask: (access: LlmAccess) => Promise<T | null>,
-): Promise<T & GrokFallbackStatus> {
-  const grok = access.grok;
-  if (grok !== "allowed" || !modelApiKey() || !worthAsking) {
-    return { ...local, grokStatus: grok };
+): Promise<T & ModelFallbackStatus> {
+  const model = access.model;
+  if (model !== "allowed" || !worthAsking || !modelEndpoint()) {
+    return { ...local, modelStatus: model };
   }
   try {
     const answer = await ask(access);
-    return { ...(answer ?? local), grokStatus: grok };
+    return { ...(answer ?? local), modelStatus: model };
   } catch (error) {
     if (error instanceof DailyLimitReached) {
-      return { ...local, grokStatus: error.grok, dailyLimit: error.dailyLimit };
+      return { ...local, modelStatus: error.model, dailyLimit: error.dailyLimit };
     }
-    return { ...local, grokStatus: grok };
+    return { ...local, modelStatus: model };
   }
 }
 

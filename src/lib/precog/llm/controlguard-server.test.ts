@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 const seams = vi.hoisted(() => ({
-  access: { userId: "u1", grok: "rate_limited" },
+  access: { userId: "u1", model: "rate_limited" },
   spend: vi.fn().mockResolvedValue({ budget: "allowed" }),
   extract: vi.fn(),
 }));

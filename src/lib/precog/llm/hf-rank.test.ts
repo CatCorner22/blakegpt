@@ -139,7 +139,7 @@ describe("rankClaimsWithHuggingFace", () => {
     );
   });
 
-  it("does not call the chat model when Grok will select the ids", async () => {
+  it("does not call the chat model when Voyager will select the ids", async () => {
     vi.stubEnv("HF_TOKEN", "test-token");
     const fetchImpl = vi.fn(async (url: string, _init?: RequestInit) => {
       if (!url.includes("sentence-similarity")) return new Response("no", { status: 500 });

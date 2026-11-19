@@ -71,7 +71,7 @@ describe("a procedure as Markdown", () => {
     );
     expect(md).toContain("   _1 picture in Precog._");
     expect(md).toContain(
-      "3. Match each line.\n   _Drafted by Grok; not yet verified by a person._",
+      "3. Match each line.\n   _Drafted by Voyager; not yet verified by a person._",
     );
     expect(md).not.toContain("4.");
     p.steps[2] = { ...p.steps[2], aiDrafted: undefined, suggested: true };

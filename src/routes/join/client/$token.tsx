@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { LegalFooter } from "@/components/precog/legal-footer";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useRecordDisplayedAccount } from "@/lib/auth/use-record-displayed-account";
-import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
+import { authEnabled } from "@/lib/auth/client";
 import { emailAndPasswordEnabled } from "@/lib/auth/email-password";
 import { acceptClientGrant, peekClientGrant } from "@/lib/precog/firm/grant-server";
 import {
@@ -96,7 +96,7 @@ function ClientInvitePage() {
   }
 
   return (
-    <main className="flex min-h-[calc(100dvh-var(--grok-banner-h,0px))] items-center justify-center p-6">
+    <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-sm">
         <p className="text-xs tracking-[0.2em] text-primary uppercase">Precog</p>
         {state.kind === "loading" ? (
@@ -125,7 +125,7 @@ function ClientInvitePage() {
                 {ADD_TO_CLIENTS}
               </Button>
             ) : (
-              <SignInHere token={token} />
+              <SignInHere />
             )}
           </>
         )}
@@ -136,36 +136,16 @@ function ClientInvitePage() {
 }
 
 /**
- * Sign-in on the invitation itself, so the firm owner comes back to this
- * link. Only Google is offered: an X sign-in carries no confirmed address,
- * so it could never accept. The email form lives on the sign-in page.
+ * The email form lives on the sign-in page, so the firm owner reopens this
+ * link after signing in.
  */
-function SignInHere({ token }: { token: string }) {
-  const here = `/join/client/${token}`;
+function SignInHere() {
   if (!authEnabled) {
     return <p className="mt-4 text-sm text-muted">Sign-in is off on this deployment.</p>;
   }
   return (
     <>
       <p className="mt-4 text-sm text-muted">{GRANT_CONFIRM}</p>
-      <div className="mt-4 space-y-2">
-        {GROK_PROVIDERS.filter((p) => p.providerId === "grok-google").map((p) => (
-          <Button
-            key={p.providerId}
-            type="button"
-            variant="secondary"
-            className="w-full"
-            onClick={() =>
-              void signIn(p.providerId, { callbackURL: here, errorCallbackURL: here }).catch(
-                (err: unknown) =>
-                  toast.error(err instanceof Error ? err.message : "Sign-in did not finish."),
-              )
-            }
-          >
-            Continue with {p.label}
-          </Button>
-        ))}
-      </div>
       {emailAndPasswordEnabled && (
         <p className="mt-3 text-xs text-muted">
           Use an email and password instead?{" "}

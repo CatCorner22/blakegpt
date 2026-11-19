@@ -155,7 +155,7 @@ export function procedureRecommendations(
     add({
       id: "ai-draft",
       level: "fix",
-      title: `Compare the ${drafted === 1 ? "step" : `${drafted} steps`} Grok drafted with the real screen or place.`,
+      title: `Compare the ${drafted === 1 ? "step" : `${drafted} steps`} Voyager drafted with the real screen or place.`,
       why: "A drafted step is only a guess until a person has followed it.",
     });
   }

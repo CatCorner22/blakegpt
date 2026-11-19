@@ -39,8 +39,8 @@ vi.mock("./local-brief", async (importOriginal) => {
 
 const TODAY = utcDateKey(new Date());
 
-function access(grok: LlmAccess["grok"]): LlmAccess {
-  return { userId: grok === "unauthenticated" ? null : "owner-1", grok };
+function access(model: LlmAccess["model"]): LlmAccess {
+  return { userId: model === "unauthenticated" ? null : "owner-1", model };
 }
 
 function request(question = ""): PioneerRequestData {
@@ -88,11 +88,13 @@ describe("answerPioneer", () => {
     expect(PIONEER_FAILED_MESSAGE).toBe(
       "Voyager could not answer just now. Try again in a moment.",
     );
-    expect(MODEL_FAILED_WARNING).toBe("Grok did not answer, so Precog's rules wrote this brief.");
+    expect(MODEL_FAILED_WARNING).toBe(
+      "Voyager did not answer, so Precog's rules wrote this brief.",
+    );
   });
 
   it("answers the default question when none is sent, with the rules brief and no model", async () => {
-    const res = await answerPioneer(request(""), access("no_api_key"));
+    const res = await answerPioneer(request(""), access("not_configured"));
     if (!res.ok) throw new Error(res.error);
     expect(res.source).toBe("local-agent");
     expect(res.modelStatus).toBe("not-asked");
@@ -101,7 +103,7 @@ describe("answerPioneer", () => {
     expect(res.markdown).toContain("## Answer");
     expect(res.markdown).not.toContain("Question:");
     // No key on the server: nothing for the owner to do, so no model warning.
-    expect(res.warnings.some((w) => /Grok/.test(w))).toBe(false);
+    expect(res.warnings.some((w) => /Voyager/.test(w))).toBe(false);
     expect(res.decisions.length).toBeGreaterThan(0);
     expect(res.decisions.some((d) => d.link)).toBe(true);
   });
@@ -117,7 +119,7 @@ describe("answerPioneer", () => {
     );
   });
 
-  it("says when Grok is busy", async () => {
+  it("says when Voyager is busy", async () => {
     const res = await answerPioneer(
       request("What should I fix this week?"),
       access("rate_limited"),
@@ -127,18 +129,20 @@ describe("answerPioneer", () => {
   });
 
   it("says so when the model was allowed but failed", async () => {
-    vi.stubEnv("XAI_API_KEY", "test-key");
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("no", { status: 401 })));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await answerPioneer(request("What should I fix this week?"), access("allowed"));
     if (!res.ok) throw new Error(res.error);
     expect(res.modelStatus).toBe("failed");
-    expect(MODEL_FAILED_WARNING).toBe("Grok did not answer, so Precog's rules wrote this brief.");
-    expect(res.warnings).toContain("Grok did not answer, so Precog's rules wrote this brief.");
+    expect(MODEL_FAILED_WARNING).toBe(
+      "Voyager did not answer, so Precog's rules wrote this brief.",
+    );
+    expect(res.warnings).toContain("Voyager did not answer, so Precog's rules wrote this brief.");
   });
 
-  it("says today's AI limit is reached, not that Grok failed, once the daily budget is spent", async () => {
-    vi.stubEnv("XAI_API_KEY", "test-key");
+  it("says today's AI limit is reached, not that Voyager failed, once the daily budget is spent", async () => {
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     budget.state = "spent";
@@ -159,7 +163,7 @@ describe("answerPioneer", () => {
   });
 
   it("names the paid plan's own figure, and the ceiling across every account", async () => {
-    vi.stubEnv("XAI_API_KEY", "test-key");
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "http://model.example/v1");
     vi.stubGlobal("fetch", vi.fn());
     budget.aiPlan = "paid";
     budget.state = "spent";
@@ -219,7 +223,7 @@ describe("answerPioneer", () => {
     vi.mocked(localBrief).mockImplementationOnce(() => {
       throw new Error("boom");
     });
-    await expect(answerPioneer(request("x"), access("no_api_key"))).resolves.toEqual({
+    await expect(answerPioneer(request("x"), access("not_configured"))).resolves.toEqual({
       ok: false,
       error: PIONEER_FAILED_MESSAGE,
     });

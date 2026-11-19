@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { LegalFooter } from "@/components/precog/legal-footer";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useRecordDisplayedAccount } from "@/lib/auth/use-record-displayed-account";
-import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
+import { authEnabled } from "@/lib/auth/client";
 import { emailAndPasswordEnabled } from "@/lib/auth/email-password";
 import { acceptFirmInvite, checkFirmInvite, peekFirmInvite } from "@/lib/precog/firm/server";
 import { clientErrorStatus } from "@/lib/request-errors";
@@ -61,7 +61,7 @@ function JoinPage() {
   }
 
   return (
-    <main className="flex min-h-[calc(100dvh-var(--grok-banner-h,0px))] items-center justify-center p-6">
+    <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-sm">
         <p className="text-xs tracking-[0.2em] text-primary uppercase">Precog</p>
         {invite === "loading" ? (
@@ -125,7 +125,7 @@ function JoinPage() {
                 onJoin={() => void join()}
               />
             ) : (
-              <SignInHere token={token} email={invite.email} />
+              <SignInHere email={invite.email} />
             )}
           </>
         )}
@@ -181,9 +181,9 @@ function JoinAs({
           </>
         ) : (
           <>
-            Precog cannot confirm this account&rsquo;s email. Sign in with Google as{" "}
-            <span className="text-fg">{invitedEmail}</span>, or use an email-and-password account
-            with a confirmed address. Then reopen the invitation.
+            Precog cannot confirm this account&rsquo;s email. Sign in with an email-and-password
+            account for <span className="text-fg">{invitedEmail}</span> and confirm its address.
+            Then reopen the invitation.
           </>
         )}
       </p>
@@ -204,40 +204,19 @@ function JoinAs({
 type InviteFitResult = Awaited<ReturnType<typeof checkFirmInvite>>["fit"];
 
 /**
- * Sign-in on the invitation itself, so the invitee comes back to this link
- * instead of the home page. Only Google is offered: an X sign-in carries no
- * confirmed address, so it could never join. The email form lives on the
- * sign-in page, which returns home, so that route says to come back.
+ * The email form lives on the sign-in page, which returns home, so the invitee
+ * reopens this link after signing in.
  */
-function SignInHere({ token, email }: { token: string; email: string }) {
-  const here = `/join/${token}`;
+function SignInHere({ email }: { email: string }) {
   if (!authEnabled) {
     return <p className="mt-4 text-sm text-muted">Sign-in is off on this deployment.</p>;
   }
   return (
     <>
       <p className="mt-4 text-sm text-muted">
-        Sign in to join. The firm sent this invite to <span className="text-fg">{email}</span>. Use
-        Google or the invited email address to sign in.
+        Sign in with the email address the firm invited: <span className="text-fg">{email}</span>.
+        Then reopen this invitation.
       </p>
-      <div className="mt-4 space-y-2">
-        {GROK_PROVIDERS.filter((p) => p.providerId === "grok-google").map((p) => (
-          <Button
-            key={p.providerId}
-            type="button"
-            variant="secondary"
-            className="w-full"
-            onClick={() =>
-              void signIn(p.providerId, { callbackURL: here, errorCallbackURL: here }).catch(
-                (err: unknown) =>
-                  toast.error(err instanceof Error ? err.message : "Sign-in did not finish."),
-              )
-            }
-          >
-            Continue with {p.label}
-          </Button>
-        ))}
-      </div>
       {emailAndPasswordEnabled && (
         <p className="mt-3 text-xs text-muted">
           Prefer email and password?{" "}

@@ -1,21 +1,19 @@
 # Voyager on any model platform
 
-Voyager's model never writes the words an owner reads. It picks up to three
-ids of statements the rules engine already wrote, and Precog renders those
-statements itself. Any chat model behind an OpenAI-compatible API can do that
-job, so a self-hosted model on a GPU can stand in for xAI.
+An optional business-configured model server can select up to three ids of
+statements the rules engine already wrote, and Precog renders those statements
+itself. Without a configured server, Voyager uses built-in rules.
 
 ## Settings
 
-| Variable                | Meaning                                                                                   |
-| ----------------------- | ----------------------------------------------------------------------------------------- |
-| `PRECOG_LLM_BASE_URL`   | Base URL ending in `/v1` (for example `http://gpu-box:8000/v1`). Empty: xAI.              |
-| `PRECOG_LLM_MODEL`      | Model name the server serves (for example `Qwen/Qwen2.5-7B-Instruct`). Empty: `grok-4.5`. |
-| `PRECOG_LLM_API_KEY`    | Key for that server. The xAI key is never sent to a custom URL.                           |
-| `PRECOG_LLM_TIMEOUT_MS` | Per-call timeout, default 20000, at most 120000.                                          |
+| Variable                | Meaning                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `PRECOG_LLM_BASE_URL`   | Optional base URL ending in `/v1` (for example `http://gpu-box:8000/v1`). Unset: no model call. |
+| `PRECOG_LLM_MODEL`      | Model name served by the configured endpoint (for example `Qwen/Qwen2.5-7B-Instruct`).          |
+| `PRECOG_LLM_API_KEY`    | Optional key for the configured endpoint.                                                       |
+| `PRECOG_LLM_TIMEOUT_MS` | Per-call timeout, default 20000, at most 120000.                                                |
 
-With no key for the configured endpoint, Voyager answers from its rules, as it
-does today without `XAI_API_KEY`.
+Without `PRECOG_LLM_BASE_URL`, Voyager uses the built-in rules.
 
 On a custom endpoint Precog asks for the selection protocol as a JSON schema
 (`response_format: json_schema`, ids limited to the claims on screen), which the

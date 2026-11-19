@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
  * The exempt strings never reach a screen.
  */
 const EXEMPT: Record<string, string> = {
-  "src/lib/precog/builder/review-server.ts": "the instructions sent to Grok",
-  "src/lib/precog/llm/tools.ts": "tool descriptions written for Grok",
+  "src/lib/precog/builder/review-server.ts": "the instructions sent to Voyager",
+  "src/lib/precog/llm/tools.ts": "tool descriptions written for Voyager",
   "src/lib/precog/rag/retrieve.ts": "the list of words search ignores",
 };
 

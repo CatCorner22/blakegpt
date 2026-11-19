@@ -27,15 +27,15 @@ describe("Voyager Hugging Face budget", () => {
     vi.unstubAllEnvs();
   });
 
-  it("spends a daily unit before Hugging Face even when Grok may also run", async () => {
+  it("spends a daily unit before Hugging Face even when Voyager may also run", async () => {
     vi.stubEnv("HF_TOKEN", "test-token");
-    vi.stubEnv("XAI_API_KEY", "");
+    vi.stubEnv("PRECOG_LLM_BASE_URL", "");
     const data = readPioneerRequest({
       question: "Who can pay a vendor alone?",
       profile: defaultProfile("dental") as never,
       today: utcDateKey(new Date()),
     });
-    const res = await selectPioneerHighlights(data, { userId: "owner-1", grok: "allowed" });
+    const res = await selectPioneerHighlights(data, { userId: "owner-1", model: "allowed" });
     expect(spend).toHaveBeenCalled();
     expect(spend.mock.calls[0]?.[1]).toBe("owner-1");
     expect(["free", "paid"]).toContain(spend.mock.calls[0]?.[5]);

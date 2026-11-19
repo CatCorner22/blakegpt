@@ -43,7 +43,7 @@ function PricingPage() {
   const amounts: PlanAmounts | null = prices ? planAmounts(prices.configured, prices.prices) : null;
 
   return (
-    <main className="mx-auto min-h-[calc(100dvh-var(--grok-banner-h,0px))] max-w-4xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-4xl px-6 py-10">
       <p className="text-xs font-semibold tracking-[0.2em] text-muted uppercase">Precog</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Pricing</h1>
       <p className="mt-2 text-sm text-muted">

@@ -25,26 +25,6 @@ const QUERIES: Record<OperatorCountName, (sql: Sql) => Promise<Row[]>> = {
     where ba.user_id is null and f.plan = 'monthly'
     order by f.name
   `,
-  "x-only-digest": (sql) => sql<Row>`
-    select count(*)::int as accounts from notification_settings s
-    join "user" u on u.id = s.user_id
-    where s.weekly_digest
-      and not exists (select 1 from account a where a."userId" = u.id
-        and a."providerId" in ('credential', 'grok-google'))
-      and exists (select 1 from account a where a."userId" = u.id and a."providerId" = 'grok-x')
-  `,
-  "google-unconfirmed-digest": (sql) => sql<Row>`
-    select count(*)::int as accounts from notification_settings s
-    join "user" u on u.id = s.user_id
-    where s.weekly_digest and not u."emailVerified"
-      and exists (select 1 from account a where a."userId" = u.id and a."providerId" = 'grok-google')
-  `,
-  "google-digest": (sql) => sql<Row>`
-    select count(*)::int as accounts from notification_settings s
-    join "user" u on u.id = s.user_id
-    where s.weekly_digest
-      and exists (select 1 from account a where a."userId" = u.id and a."providerId" = 'grok-google')
-  `,
   "past-due": (sql) => sql<Row>`
     select count(*)::int as subscriptions from billing_accounts
     where subscription_status = 'past_due'

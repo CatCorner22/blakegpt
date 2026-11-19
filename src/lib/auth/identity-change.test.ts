@@ -101,7 +101,7 @@ describe("other tabs", () => {
     const { as } = await openTabs(3);
     as(0, (tab) => tab.setDisplayedAccount("A"));
     as(1, (tab) => tab.setDisplayedAccount("A"));
-    // Tab 1 leaves for the provider's page and never reports a cancel.
+    // Tab 1 opens the sign-in page and never reports a cancel.
     as(1, (tab) => tab.beginIdentityChange("signing-in"));
     expect(as(0, (tab) => tab.identityLockReason())).toBe("other-tab");
     // The customer comes back without signing in: a fresh page shows account A.

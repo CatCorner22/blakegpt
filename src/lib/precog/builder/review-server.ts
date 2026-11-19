@@ -1,20 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 import { callModel, type LlmAccess } from "../llm/guard.server";
 import { llmMiddleware } from "../llm/middleware";
-import { ownerText, parseJsonReply, withGrokFallback } from "../llm/prompt-text";
+import { ownerText, parseJsonReply, withModelFallback } from "../llm/prompt-text";
 import { parseReviewInput } from "../public-inputs";
 import { gradeFromScore, reviewLocally, type MapReview, type ReviewInput } from "./review";
 
-/** Plain-English critique of the whole process map: Grok when allowed, the local review otherwise. */
+/** Plain-English critique of the whole process map: Voyager when allowed, the local review otherwise. */
 export const reviewMap = createServerFn({ method: "POST" })
   .middleware([llmMiddleware])
   .validator((input: ReviewInput): ReviewInput => parseReviewInput(input))
   .handler(async ({ data, context }): Promise<MapReview> => {
-    const review = await withGrokFallback(
+    const review = await withModelFallback(
       context.llm,
       reviewLocally(data),
       data.processes.length > 0,
-      (access) => reviewWithGrok(data, access),
+      (access) => reviewWithVoyager(data, access),
     );
     if (
       data.dutiesMarked !== false ||
@@ -70,7 +70,7 @@ Return ONLY JSON shaped exactly:
 Rules: 2-4 points per section, each under 200 characters, name specific processes in quotes. Recommended moves must be doable by a small team this month.`;
 }
 
-async function reviewWithGrok(input: ReviewInput, access: LlmAccess): Promise<MapReview | null> {
+async function reviewWithVoyager(input: ReviewInput, access: LlmAccess): Promise<MapReview | null> {
   const response = await callModel(access, {
     messages: [{ role: "user", content: reviewPrompt(input) }],
     maxTokens: 1400,
@@ -99,12 +99,12 @@ async function reviewWithGrok(input: ReviewInput, access: LlmAccess): Promise<Ma
   // badge can never contradict the number beside it.
   const grade = gradeFromScore(input.health.score);
   return {
-    source: "grok",
+    source: "model",
     model: response.model,
     headline:
       String(parsed.headline ?? "")
         .trim()
-        .slice(0, 200) || "Grok reviewed your map.",
+        .slice(0, 200) || "Voyager reviewed your map.",
     grade,
     sections,
     nextMove:

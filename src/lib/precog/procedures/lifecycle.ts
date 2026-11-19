@@ -258,7 +258,7 @@ export function withoutDraftMarks(step: ProcedureStep): ProcedureStep {
   return rest;
 }
 
-/** Steps Grok wrote that no person has edited or verified yet. */
+/** Steps Voyager wrote that no person has edited or verified yet. */
 export function aiDraftedSteps(p: Pick<Procedure, "steps">): number {
   return p.steps.filter((s) => s.aiDrafted && s.text.trim()).length;
 }
@@ -283,7 +283,7 @@ export function suggestedSteps(p: Pick<Procedure, "steps">): number {
  * view, print and export show the same words.
  */
 export function stepMarkNote(step: Pick<ProcedureStep, "aiDrafted" | "suggested">): string {
-  if (step.aiDrafted) return "Drafted by Grok; not yet verified by a person.";
+  if (step.aiDrafted) return "Drafted by Voyager; not yet verified by a person.";
   if (step.suggested) return "Suggested common practice; not yet fitted to this business.";
   return "";
 }

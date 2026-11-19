@@ -201,12 +201,11 @@ export const deleteAccount = createServerFn({ method: "POST" })
     const { requireFreshSession } = await import("@/lib/auth/fresh-session");
     const { email } = await requireFreshSession({
       userId: context.userId,
-      bearerToken: context.bearerToken,
       message: SIGN_IN_AGAIN_TO_DELETE,
     });
     const sql = await getSql();
-    // Read before the account row goes. The session's address alone may be
-    // one the auth broker made up for an X sign-in.
+    // Read before the account row goes so the deletion notice goes only to a
+    // confirmed address.
     const notifyAt = email ? await trustedEmailAddress(sql, context.userId) : null;
     // Commits before it returns; everything after it is best effort.
     const deleted = await deleteAccountRows(sql, context.userId);

@@ -1,36 +1,36 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { openTestDb, type TestDb } from "@/test/pglite";
 import { digestAddressProblem, trustedEmailAddress } from "./store";
-import { GOOGLE_ACCOUNT, TRUSTED_EMAIL, VOUCHED_EMAIL, X_ACCOUNT } from "./vouched-email";
+import { TRUSTED_EMAIL, VOUCHED_EMAIL } from "./vouched-email";
 
-/**
- * The five kinds of account the rules tell apart, each with the sign-ins
- * (`account` rows) and the confirmed flag the auth broker or Better Auth set.
- */
-const ACCOUNTS: { id: string; verified: boolean; providers: string[] }[] = [
-  { id: "password_confirmed", verified: true, providers: ["credential"] },
-  { id: "google_confirmed", verified: true, providers: ["grok-google"] },
-  { id: "google_unconfirmed", verified: false, providers: ["grok-google"] },
-  { id: "x_only", verified: true, providers: ["grok-x"] },
-  { id: "x_and_google", verified: true, providers: ["grok-x", "grok-google"] },
+const ACCOUNTS = [
+  { id: "confirmed", verified: true, providers: ["credential"] },
+  { id: "unconfirmed", verified: false, providers: ["credential"] },
+  { id: "legacy_synthetic", verified: true, providers: ["legacy-x"] },
+  { id: "legacy_google", verified: true, providers: ["legacy-google"] },
 ];
 
 describe("vouched addresses", () => {
   let db: TestDb;
+
   beforeAll(async () => {
     db = await openTestDb();
-    for (const a of ACCOUNTS) {
-      await db.seedUser(a.id, `${a.id}@example.test`);
-      await db.pg.query(`update "user" set "emailVerified" = $2 where id = $1`, [a.id, a.verified]);
-      for (const p of a.providers) {
+    for (const account of ACCOUNTS) {
+      await db.seedUser(account.id, `${account.id}@example.test`);
+      await db.pg.query(`update "user" set "emailVerified" = $2 where id = $1`, [
+        account.id,
+        account.verified,
+      ]);
+      for (const providerId of account.providers) {
         await db.pg.query(
           `insert into account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
            values ($1, $2, $3, $4, now(), now())`,
-          [`${a.id}_${p}`, a.id, p, a.id],
+          [`${account.id}_${providerId}`, account.id, providerId, account.id],
         );
       }
     }
   }, 60_000);
+
   afterAll(async () => {
     await db.close();
   });
@@ -39,60 +39,28 @@ describe("vouched addresses", () => {
     const rows = await db.sql.query<{ id: string; ok: boolean }>(
       `select u.id, ${fragment("u")} as ok from "user" u order by u.id`,
     );
-    return Object.fromEntries(rows.map((r) => [r.id, r.ok]));
+    return Object.fromEntries(rows.map((row) => [row.id, row.ok]));
   }
 
-  it("vouches as the firm join does: confirmed, and a password or Google sign-in or no X", async () => {
-    expect(await verdicts(VOUCHED_EMAIL)).toEqual({
-      google_confirmed: true,
-      google_unconfirmed: false,
-      password_confirmed: true,
-      x_and_google: true,
-      x_only: false,
-    });
+  it("does not vouch for a verified synthetic legacy address", async () => {
+    const expected = {
+      confirmed: true,
+      legacy_google: true,
+      legacy_synthetic: false,
+      unconfirmed: false,
+    };
+    expect(await verdicts(VOUCHED_EMAIL)).toEqual(expected);
+    expect(await verdicts(TRUSTED_EMAIL)).toEqual(expected);
   });
 
-  it("trusts for email exactly the vouched addresses: never X-only, never an unconfirmed Google one", async () => {
-    expect(await verdicts(TRUSTED_EMAIL)).toEqual({
-      google_confirmed: true,
-      google_unconfirmed: false,
-      password_confirmed: true,
-      x_and_google: true,
-      x_only: false,
-    });
-  });
-
-  it("names the sign-ins it reads", async () => {
-    expect(await verdicts(GOOGLE_ACCOUNT)).toMatchObject({
-      google_unconfirmed: true,
-      x_only: false,
-    });
-    expect(await verdicts(X_ACCOUNT)).toMatchObject({ x_only: true, google_confirmed: false });
-  });
-
-  it("says why the digest cannot reach an address", async () => {
-    const problems: Record<string, string | null> = {};
-    for (const a of ACCOUNTS) problems[a.id] = await digestAddressProblem(db.sql, a.id);
-    expect(problems).toEqual({
-      password_confirmed: null,
-      google_confirmed: null,
-      google_unconfirmed: "unconfirmed",
-      x_only: "x_only",
-      x_and_google: null,
-    });
+  it("sends notices only to a confirmed email address", async () => {
+    expect(await digestAddressProblem(db.sql, "confirmed")).toBeNull();
+    expect(await digestAddressProblem(db.sql, "unconfirmed")).toBe("unconfirmed");
+    expect(await digestAddressProblem(db.sql, "legacy_synthetic")).toBe("unconfirmed");
     expect(await digestAddressProblem(db.sql, "nobody")).toBeNull();
-  });
-
-  it("hands out an address only where TRUSTED_EMAIL holds (the deletion notice's rule)", async () => {
-    const addresses: Record<string, string | null> = {};
-    for (const a of ACCOUNTS) addresses[a.id] = await trustedEmailAddress(db.sql, a.id);
-    expect(addresses).toEqual({
-      password_confirmed: "password_confirmed@example.test",
-      google_confirmed: "google_confirmed@example.test",
-      google_unconfirmed: null,
-      x_only: null,
-      x_and_google: "x_and_google@example.test",
-    });
+    expect(await trustedEmailAddress(db.sql, "confirmed")).toBe("confirmed@example.test");
+    expect(await trustedEmailAddress(db.sql, "unconfirmed")).toBeNull();
+    expect(await trustedEmailAddress(db.sql, "legacy_synthetic")).toBeNull();
     expect(await trustedEmailAddress(db.sql, "nobody")).toBeNull();
   });
 });
