@@ -146,16 +146,17 @@ async function recordedCall(
   apiKey: string,
   opts: GrokChatOptions,
 ): Promise<GrokChatResult | null> {
-  let usage: GrokUsageLine | null = null;
+  // One line per attempt: a platform that rejects the requested format is
+  // retried with a looser one, and each attempt is a call the API saw.
+  const lines: GrokUsageLine[] = [];
   const keep = (line: GrokUsageLine) => {
-    usage = line;
+    lines.push(line);
     opts.onUsage?.(line);
   };
   try {
     return await grokChat(apiKey, { ...opts, onUsage: keep });
   } finally {
-    const line = usage as GrokUsageLine | null;
-    if (line) {
+    for (const line of lines) {
       try {
         await insertUsage(await getSql(), {
           // The local development account has no "user" row for the foreign key.
