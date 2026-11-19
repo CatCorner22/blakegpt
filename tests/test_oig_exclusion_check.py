@@ -1,4 +1,5 @@
 import csv
+import stat
 from pathlib import Path
 
 import pytest
@@ -192,6 +193,7 @@ def test_download_target_cannot_resolve_to_staff_input(
 def test_download_leie_replaces_target_after_success(tmp_path: Path, monkeypatch) -> None:
     target = tmp_path / "UPDATED.csv"
     target.write_bytes(b"old contents")
+    target.chmod(0o640)
     payload = b"LASTNAME,FIRSTNAME,MIDNAME,BUSNAME,NPI,EXCLTYPE,EXCLDATE,REINDATE\n"
 
     class Response:
@@ -210,6 +212,7 @@ def test_download_leie_replaces_target_after_success(tmp_path: Path, monkeypatch
 
     assert download_leie(target) == len(payload)
     assert target.read_bytes() == payload
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
     assert list(tmp_path.glob(".UPDATED.csv.*.tmp")) == []
 
 

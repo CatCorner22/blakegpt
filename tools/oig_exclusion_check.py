@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import stat
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
@@ -41,6 +42,10 @@ class PossibleMatch:
 
 
 def download_leie(path: Path, timeout: int = 45) -> int:
+    try:
+        existing_mode = stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        existing_mode = None
     request = Request(LEIE_URL, headers={"User-Agent": "office-compliance-assistant/1.0"})
     with urlopen(request, timeout=timeout) as response:
         if response.status != 200:
@@ -59,6 +64,8 @@ def download_leie(path: Path, timeout: int = 45) -> int:
             temporary.write(data)
             temporary.flush()
             os.fsync(temporary.fileno())
+        if existing_mode is not None:
+            os.chmod(temporary_path, existing_mode)
         os.replace(temporary_path, path)
         temporary_path = None
     finally:
