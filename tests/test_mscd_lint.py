@@ -1,4 +1,4 @@
-from tools.mscd_lint import lint
+from tools.mscd_lint import _classify_outline_label, lint
 
 
 def rules(text: str, *, parties: list[str] | None = None, mode: str = "contract") -> set[str]:
@@ -49,6 +49,26 @@ def test_outline_hierarchy_and_invalid_labels() -> None:
     assert "R-OUTLINE" in rules("I. First\n1. Skips a level")
     assert "R-OUTLINE" in rules("A. Parent\n(ii) Skips a level")
     assert "R-OUTLINE" in rules("(A) Invalid uppercase label\na. Invalid lowercase label\n1.1 Invalid decimal")
+
+
+def test_ambiguous_outline_labels_use_sequence_context() -> None:
+    assert "R-OUTLINE" not in rules("I. First\nII. Second")
+    assert "R-OUTLINE" not in rules("B. First\nC. Second")
+    assert "R-OUTLINE" not in rules("A. Parent\n1. Child\n(a) Subitem\n(i) Sub-subitem")
+    assert "R-OUTLINE" not in rules("(h) Letter h\n(i) Letter i")
+    assert "R-OUTLINE" in rules("A. Parent\n(ii) Skips levels")
+    assert _classify_outline_label([(1, "I"), (2, "I")], None, {}) == 1
+    assert _classify_outline_label([(1, "II")], 1, {1: "I"}) == 1
+    assert _classify_outline_label([(1, "C"), (2, "C")], 2, {2: "B"}) == 2
+    assert _classify_outline_label([(1, "D"), (2, "D")], 2, {2: "C"}) == 2
+    assert _classify_outline_label([(1, "V"), (2, "V")], 1, {1: "IV"}) == 1
+    assert _classify_outline_label([(1, "X"), (2, "X")], 1, {1: "IX"}) == 1
+    assert _classify_outline_label([(1, "L"), (2, "L")], 1, {1: "XLIX"}) == 1
+    assert _classify_outline_label([(1, "M"), (2, "M")], 1, {1: "CMXCIX"}) == 1
+    assert _classify_outline_label([(4, "i"), (5, "i")], 4, {4: "a"}) == 5
+    assert _classify_outline_label([(4, "i"), (5, "i")], 4, {4: "h"}) == 4
+    assert _classify_outline_label([(4, "v"), (5, "v")], 4, {4: "u"}) == 4
+    assert _classify_outline_label([(4, "x"), (5, "x")], 5, {5: "ix"}) == 5
 
 
 def test_archaic_rule_and_such_as_exception() -> None:

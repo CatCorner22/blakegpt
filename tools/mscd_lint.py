@@ -45,6 +45,82 @@ def _excerpt(text: str, offset: int) -> str:
     return text[start:] if end < 0 else text[start:end]
 
 
+def _roman_value(label: str) -> int:
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    numeral = label.upper()
+    total = 0
+    for index, character in enumerate(numeral):
+        value = values[character]
+        if index + 1 < len(numeral) and value < values[numeral[index + 1]]:
+            total -= value
+        else:
+            total += value
+    return total
+
+
+def _roman_label(value: int) -> str | None:
+    if not 1 <= value <= 3999:
+        return None
+    values = (
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    )
+    parts: list[str] = []
+    for amount, numeral in values:
+        while value >= amount:
+            parts.append(numeral)
+            value -= amount
+    return "".join(parts)
+
+
+def _next_outline_label(tier: int, label: str) -> str | None:
+    if tier in {1, 5}:
+        next_label = _roman_label(_roman_value(label) + 1)
+        return next_label if tier == 1 or next_label is None else next_label.lower()
+    if tier in {2, 4}:
+        first, last = ("A", "Z") if tier == 2 else ("a", "z")
+        return chr(ord(label) + 1) if first <= label < last else None
+    if tier == 3:
+        return str(int(label) + 1)
+    return None
+
+
+def _classify_outline_label(
+    candidates: list[tuple[int, str]],
+    previous_tier: int | None,
+    last_label_by_tier: dict[int, str],
+) -> int:
+    continuing = [
+        tier
+        for tier, label in candidates
+        if tier in last_label_by_tier
+        and _next_outline_label(tier, last_label_by_tier[tier]) == label
+    ]
+    if previous_tier in continuing:
+        return previous_tier
+    if len(continuing) == 1:
+        return continuing[0]
+    if continuing:
+        return continuing[0]
+    candidate_tiers = {tier for tier, _ in candidates}
+    if previous_tier is not None and previous_tier + 1 in candidate_tiers:
+        return previous_tier + 1
+    if previous_tier in candidate_tiers:
+        return previous_tier
+    return candidates[0][0]
+
+
 def _parties(text: str, defined_parties: list[str] | None) -> list[str]:
     parties = set(defined_parties or [])
     pattern = re.compile(r'\(\s*(?:the\s+)?["“]([^"”]+)["”]\s*\)')
@@ -140,10 +216,10 @@ def lint(
             "Use a descriptive heading instead of a numeric cross-reference.",
         )
 
-    labels = (
-        (re.compile(r"^\s*([IVXLCDM]+)\.\s+"), 0),
-        (re.compile(r"^\s*([A-Z])\.\s+"), 1),
-        (re.compile(r"^\s*(\d+)\.\s+"), 2),
+    label_patterns = (
+        (re.compile(r"^\s*([IVXLCDM]+)\.\s+"), "roman"),
+        (re.compile(r"^\s*([A-Z])\.\s+"), "letter"),
+        (re.compile(r"^\s*(\d+)\.\s+"), "number"),
     )
     parenthesized_label = re.compile(r"^\s*\(([a-z]+)\)\s+", re.IGNORECASE)
     roman_labels = {"i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
@@ -153,6 +229,7 @@ def lint(
         re.compile(r"^\s*[a-z]\.\s+"),
     )
     previous_tier: int | None = None
+    last_label_by_tier: dict[int, str] = {}
     absolute_start = 0
     for line_text in text.splitlines(keepends=True):
         malformed = next(
@@ -165,31 +242,44 @@ def lint(
             absolute_start += len(line_text)
             continue
         label_match: re.Match[str] | None = None
-        tier: int | None = None
-        for pattern, candidate_tier in labels:
+        candidates: list[tuple[int, str]] = []
+        for pattern, label_type in label_patterns:
             label_match = pattern.match(line_text)
             if label_match:
-                tier = candidate_tier
+                label = label_match.group(1)
+                if label_type == "roman":
+                    candidates.append((1, label.upper()))
+                    if len(label) == 1:
+                        candidates.append((2, label.upper()))
+                elif label_type == "letter":
+                    candidates.append((2, label))
+                else:
+                    candidates.append((3, label))
                 break
-        if tier is None:
+        if not candidates:
             label_match = parenthesized_label.match(line_text)
             if label_match:
                 label = label_match.group(1).casefold()
+                if len(label) == 1:
+                    candidates.append((4, label))
                 if label in roman_labels:
-                    tier = 4
-                elif len(label) == 1:
-                    tier = 3
-                else:
+                    candidates.append((5, label))
+                if not candidates:
                     add("R-OUTLINE", absolute_start + label_column, "Use the required outline hierarchy.")
                     absolute_start += len(line_text)
                     continue
-        if tier is None:
+        if not candidates:
             absolute_start += len(line_text)
             continue
         assert label_match is not None
+        tier = _classify_outline_label(candidates, previous_tier, last_label_by_tier)
+        label_for_tier = next(
+            label for candidate_tier, label in candidates if candidate_tier == tier
+        )
         if previous_tier is not None and tier > previous_tier + 1:
             add("R-OUTLINE", absolute_start + label_column, "The outline skips a hierarchy level.")
         previous_tier = tier
+        last_label_by_tier[tier] = label_for_tier
         absolute_start += len(line_text)
 
     archaic_phrases = (
