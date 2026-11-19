@@ -69,7 +69,8 @@ def leave(data: Fields) -> Fields:
     def convert(match: re.Match[str]) -> str:
         nonlocal count
         remainder = source[match.end():]
-        if re.match(r"[- ](?:old|long|period|notice)\b", remainder, re.IGNORECASE):
+        if re.match(r"(?:['’]s?\s+notice|[- ](?:old|long|period|notice))\b",
+                    remainder, re.IGNORECASE):
             return match[0]
         count += 1
         amount = Decimal("0.5") if match["half"] else Decimal(match["amount"])

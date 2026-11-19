@@ -103,6 +103,14 @@ def test_price_formulas_and_pack_edge(ledger: Ledger) -> None:
         run_engine("price", {**data, "quantity": Decimal("1e500")}, ledger)
 
 
+def test_price_equal_packs_have_no_rounding_overcharge(ledger: Ledger) -> None:
+    result = run_engine("price", {
+        "quantity": 1, "invoice_pack": 3, "po_pack": 3,
+        "billed_price": 1, "contract_list_price": 1, "discount": 0,
+    }, ledger)
+    assert result["overcharge"] == 0
+
+
 def test_skew_edges(ledger: Ledger) -> None:
     prices = [103] * 5 + [105] * 2 + [100] * 3
     invoices = [{"invoice_unit_price": price, "po_unit_price": 100} for price in prices]
@@ -152,6 +160,14 @@ def test_leave_converts_both_endpoints(ledger: Ledger, source: str, expected: st
 def test_leave_keeps_notice_ranges(ledger: Ledger) -> None:
     result = run_engine("leave", {"text": "Give 1–2 days notice."}, ledger)
     assert result["text"] == "Give 1–2 days notice."
+    assert result["unresolved_day_units"] is True
+
+
+@pytest.mark.parametrize("notice", ["1 day’s notice", "1 day's notice", "3 days’ notice", "3 days' notice"])
+def test_leave_keeps_possessive_notice(ledger: Ledger, notice: str) -> None:
+    source = f"Give {notice}. Use 2 days of leave."
+    result = run_engine("leave", {"text": source}, ledger)
+    assert result["text"] == f"Give {notice}. Use 16.0 hours of leave."
     assert result["unresolved_day_units"] is True
 
 

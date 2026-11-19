@@ -1,4 +1,5 @@
 from decimal import Decimal
+from fractions import Fraction
 
 from .inputs import Fields, fields, finite, items, number
 
@@ -16,14 +17,18 @@ def price(data: Fields) -> Fields:
         raise ValueError("discount must be less than 1.")
     invoice_unit = billed_price / max(invoice_pack, EPSILON)
     truth_unit = list_price * (1 - discount) / max(po_pack, EPSILON)
-    truth_total = quantity * invoice_pack * truth_unit
+    exact_truth_total = (Fraction(quantity) * Fraction(invoice_pack) * Fraction(list_price)
+                         * (1 - Fraction(discount)) / Fraction(max(po_pack, EPSILON)))
+    exact_billed_total = Fraction(quantity) * Fraction(billed_price)
+    exact_overcharge = max(Fraction(0), exact_billed_total - exact_truth_total)
+    truth_total = Decimal(exact_truth_total.numerator) / Decimal(exact_truth_total.denominator)
     billed_total = quantity * billed_price
     warnings = ["A pack size is zero or too small. Check the pack sizes before using this amount."] if (
         min(invoice_pack, po_pack) < EPSILON
     ) else []
     return {"invoice_unit_price": finite(invoice_unit), "truth_unit_price": finite(truth_unit),
             "truth_total": finite(truth_total), "billed_total": finite(billed_total),
-            "overcharge": finite(max(Decimal(0), billed_total - truth_total)),
+            "overcharge": finite(Decimal(exact_overcharge.numerator) / Decimal(exact_overcharge.denominator)),
             "flags": ["INV-TRAP-04"] if invoice_pack != po_pack else [], "warnings": warnings}
 
 
