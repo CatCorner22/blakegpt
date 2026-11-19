@@ -95,17 +95,36 @@ export const recordControlGuardSignoff = createServerFn({ method: "POST" })
   .validator((data: z.input<typeof signoffInput>) => signoffInput.parse(data))
   .handler(({ data }) => appendFridayEntry(data.entries, data.signoff, new Date()));
 
+function plainReference(text: string) {
+  const symbols: Record<string, string> = {
+    ge: "≥",
+    le: "≤",
+    land: "and",
+    rightarrow: "→",
+    times: "×",
+  };
+  return text
+    .replace(/\$((?:\\.|[^$\\])+)\$/g, (_, math: string) =>
+      math
+        .replace(/\\text\{([^{}]*)\}/g, "$1")
+        .replace(/\\(ge|le|land|rightarrow|times)\b/g, (_, name: string) => symbols[name])
+        .replace(/\\([$%])/g, "$1"),
+    )
+    .replace(/[*\x60]/g, "");
+}
+
 export const readControlGuardReference = createServerFn({ method: "GET" }).handler(() =>
   Object.entries(catalogs).map(([group, items]) => ({
     group,
     items: Object.entries(items).map(([id, item]) => ({
       id,
-      text:
+      text: plainReference(
         typeof item === "string"
           ? id === "TW-01"
             ? "Positive skew and prices near the tolerance ceiling. Precog does not run CUSUM."
             : item.split("\n")[0]
           : item.title.replace("Segregation of Duties (SoD)", "Duty Conflicts"),
+      ),
     })),
   })),
 );
