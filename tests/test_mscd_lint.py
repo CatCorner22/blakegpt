@@ -29,6 +29,12 @@ def test_leading_digit_rule() -> None:
     assert "R-LEADING-DIGIT" not in rules("(a) Lettered item.")
     assert "R-LEADING-DIGIT" in rules("1. 30 days apply.")
     assert "R-LEADING-DIGIT" in rules("(a) 30 days apply.")
+    findings = [
+        finding
+        for finding in lint("A. 30 days apply.")
+        if finding.rule == "R-LEADING-DIGIT"
+    ]
+    assert len(findings) == 1
 
 
 def test_article_party_rule_and_definition_detection() -> None:
