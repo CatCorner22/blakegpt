@@ -32,7 +32,7 @@ Follow [Blake's Samurai Cat standard](../../design/SAMURAI_CAT.md) for this Blak
 - Make every screen answer: Where am I? What can I do now? What will that change? How will I know it worked? How do I return or recover?
 - Show explicit pending, success, failure, cancel, retry, and stale states; a click does not confirm a save.
 - Use restrained motion and honor reduced-motion preferences.
-- Reverie and the Garden Path belong to Blake's Focus project and do not appear in BlakeGPT unless Blake adds them.
+- Reverie, Blake's gentle cream-and-ginger cat (she/her), is BlakeGPT's companion. Use `design/reverie/reverie-dental.webp` for dental and office topics and `design/reverie/reverie-lawyer.webp` for legal and contract topics. Give her a purposeful moment, for example welcoming Amanda, an empty Drafts list, or recovering from an error. Never use her as a sign that a check passed. Keep instructions in readable text. These two pictures are drafts until Blake approves them against her reference art.
 
 ## Look and feel
 Calm and quiet: one accent color, generous white space, plain labels and no jargon, large click targets, readable on a phone.
