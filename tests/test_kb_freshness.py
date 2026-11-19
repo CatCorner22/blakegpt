@@ -8,6 +8,7 @@ from tools.kb_freshness import (
     check_federal_register,
     discover_cards,
     load_card,
+    main,
     parse_front_matter,
 )
 
@@ -76,6 +77,52 @@ def test_federal_register_query_is_sent_once_per_citation(monkeypatch) -> None:
     assert len(calls) == 1
     assert documents[0].title == "Sample update"
     assert documents[0].document_type == "Rule"
+
+
+def test_federal_register_paginates_and_reports_ten_page_cap(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    (tmp_path / "card.md").write_text(
+        "---\nid: paginated\ntitle: Paginated\njurisdiction: federal\n"
+        "status: verified\nlast_verified: 2026-01-01\n"
+        "sources:\n  - https://example.com\n"
+        "cfr:\n  - 29 CFR 1910.1030\n---\n",
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_fetch(params):
+        calls.append(params)
+        page = len(calls)
+        return {
+            "results": [
+                {
+                    "title": f"Page {page}",
+                    "html_url": f"https://example.com/{page}",
+                    "publication_date": "2026-02-01",
+                    "type": "Rule",
+                }
+            ],
+            "next_page_url": (
+                f"https://www.federalregister.gov/api/v1/documents.json?page={page + 1}"
+            ),
+        }
+
+    monkeypatch.setattr("tools.kb_freshness.fetch_documents", fake_fetch)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["kb_freshness", str(tmp_path), "--federal-register"],
+    )
+
+    assert main() == 0
+    output = capsys.readouterr().out
+    assert len(calls) == 10
+    assert calls[1].endswith("page=2")
+    assert "Page 10" in output
+    assert "FEDERAL-REGISTER-PAGE-LIMIT" in output
+    assert "after 10 pages" in output
 
 
 def test_discover_cards_loads_only_markdown_cards() -> None:

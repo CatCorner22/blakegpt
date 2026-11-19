@@ -7,11 +7,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
 FEDERAL_REGISTER_URL = "https://www.federalregister.gov/api/v1/documents.json"
+MAX_FEDERAL_REGISTER_PAGES = 10
 CFR_PATTERN = re.compile(r"^\s*(\d+)\s+CFR\s+(\d+)")
 
 
@@ -160,28 +161,56 @@ def build_query(citation: str, last_verified: date) -> list[tuple[str, str]]:
     return params
 
 
-def fetch_documents(params: list[tuple[str, str]], timeout: int = 30) -> dict[str, Any]:
-    url = f"{FEDERAL_REGISTER_URL}?{urlencode(params)}"
+def fetch_documents(
+    params: list[tuple[str, str]] | str,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    if isinstance(params, str):
+        parsed_url = urlparse(params)
+        if parsed_url.scheme != "https" or parsed_url.netloc != "www.federalregister.gov":
+            raise ValueError(
+                "Federal Register pagination URL must use www.federalregister.gov"
+            )
+        url = params
+    else:
+        url = f"{FEDERAL_REGISTER_URL}?{urlencode(params)}"
     request = Request(url, headers={"User-Agent": "office-compliance-assistant/1.0"})
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def check_federal_register(card: Card) -> list[FederalRegisterDocument]:
+def check_federal_register_with_status(
+    card: Card,
+) -> tuple[list[FederalRegisterDocument], bool]:
     documents: list[FederalRegisterDocument] = []
+    page_limit_hit = False
     for citation in card.cfr:
         result = fetch_documents(build_query(citation, card.last_verified))
-        for item in result.get("results", []):
-            documents.append(
-                FederalRegisterDocument(
-                    citation,
-                    str(item.get("title", "")),
-                    str(item.get("html_url", "")),
-                    str(item.get("publication_date", "")),
-                    str(item.get("type", "")),
+        page = 1
+        while True:
+            for item in result.get("results", []):
+                documents.append(
+                    FederalRegisterDocument(
+                        citation,
+                        str(item.get("title", "")),
+                        str(item.get("html_url", "")),
+                        str(item.get("publication_date", "")),
+                        str(item.get("type", "")),
+                    )
                 )
-            )
-    return documents
+            next_page_url = result.get("next_page_url")
+            if not next_page_url:
+                break
+            if page >= MAX_FEDERAL_REGISTER_PAGES:
+                page_limit_hit = True
+                break
+            result = fetch_documents(str(next_page_url))
+            page += 1
+    return documents, page_limit_hit
+
+
+def check_federal_register(card: Card) -> list[FederalRegisterDocument]:
+    return check_federal_register_with_status(card)[0]
 
 
 def discover_cards(directory: Path) -> list[Card]:
@@ -200,14 +229,24 @@ def main() -> int:
     parser.add_argument("--federal-register", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    reports = [
-        CardReport(
-            card,
-            assess_card(card),
-            check_federal_register(card) if args.federal_register else [],
-        )
-        for card in discover_cards(args.directory)
-    ]
+    reports = []
+    for card in discover_cards(args.directory):
+        findings = assess_card(card)
+        documents: list[FederalRegisterDocument] = []
+        if args.federal_register:
+            documents, page_limit_hit = check_federal_register_with_status(card)
+            if page_limit_hit:
+                findings.append(
+                    CardFinding(
+                        card.id,
+                        "FEDERAL-REGISTER-PAGE-LIMIT",
+                        (
+                            "Stopped Federal Register pagination after "
+                            f"{MAX_FEDERAL_REGISTER_PAGES} pages for a citation."
+                        ),
+                    )
+                )
+        reports.append(CardReport(card, findings, documents))
     if args.json:
         print(
             json.dumps(
