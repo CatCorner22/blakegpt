@@ -61,6 +61,15 @@ def test_cumulative_invoice_quantity_over_received_status() -> None:
     assert [result.status for result in results] == ["MATCH", "QTY-OVER-RECEIVED"]
 
 
+def test_cumulative_invoice_quantity_over_ordered_status() -> None:
+    invoices = [
+        invoice("INV-1", qty="2"),
+        invoice("INV-2", qty="1"),
+    ]
+    results = match([po(qty="2")], [receipt("4")], invoices)
+    assert [result.status for result in results] == ["MATCH", "QTY-OVER-ORDERED"]
+
+
 def test_price_variance_and_tolerance() -> None:
     results = match([po()], [receipt()], [invoice(price="11")])
     assert results[0].status == "PRICE-VARIANCE"

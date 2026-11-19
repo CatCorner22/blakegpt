@@ -103,6 +103,8 @@ def match(
             status = "NO-RECEIPT"
         elif invoiced_quantities[key] > received[key]:
             status = "QTY-OVER-RECEIVED"
+        elif invoiced_quantities[key] > po["qty"]:
+            status = "QTY-OVER-ORDERED"
         else:
             po_price = po["unit_price"]
             invoice_price = row["price_decimal"]
