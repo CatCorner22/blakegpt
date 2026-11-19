@@ -1,0 +1,252 @@
+/**
+ * The deploy gate in ./migrate.mjs, run as `npm run build` and
+ * `npm run db:migrate` run it: a production deploy without its database, a
+ * strong signing secret, an https public address, sign-in, the support
+ * mailbox or the operator's real details must fail the build, and every other
+ * build must leave the database alone.
+ */
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const SCRIPT = fileURLToPath(new URL("./migrate.mjs", import.meta.url));
+const OPERATOR_TS = fileURLToPath(new URL("../src/lib/precog/legal/operator.ts", import.meta.url));
+const PLACEHOLDER_LINE = /^export const [A-Z_]+ = "\[[A-Z ]+\]";$/m;
+
+/**
+ * The operator settings a production build needs: the support mailbox and an
+ * operator file with no bracketed placeholder, written under the temp dir.
+ */
+const fixtureDir = mkdtempSync(join(tmpdir(), "precog-operator-"));
+const CLEAN = {
+  SUPPORT_EMAIL: "help@precog.example",
+  PRECOG_OPERATOR_FILE: operatorFixture("clean.ts", "Texas"),
+};
+
+/** Writes an operator module whose GOVERNING_LAW is `law`, and returns its path. */
+function operatorFixture(name, law) {
+  const path = join(fixtureDir, name);
+  writeFileSync(
+    path,
+    [
+      'export const OPERATOR_LEGAL_NAME = "Example Operator LLC";',
+      'export const OPERATOR_ADDRESS = "1 Main Street, Austin, TX 78701";',
+      `export const GOVERNING_LAW = "${law}";`,
+      "export const SUPPORT_EMAIL: string =",
+      '  (import.meta.env.SUPPORT_EMAIL as string | undefined)?.trim() || "[SUPPORT EMAIL]";',
+      "",
+    ].join("\n"),
+  );
+  return path;
+}
+
+describe("migrate.mjs", () => {
+  it("refuses a production build with neither DATABASE_URL nor BETTER_AUTH_SECRET", () => {
+    const run = migrate({ VERCEL_ENV: "production" }, "--only-on-production");
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("DATABASE_URL and BETTER_AUTH_SECRET are not set");
+  });
+
+  it("refuses a production build that has only DATABASE_URL", () => {
+    const run = migrate({
+      VERCEL_ENV: "production",
+      DATABASE_URL: "postgresql://nobody@127.0.0.1:9/none",
+      BETTER_AUTH_SECRET: "   ",
+    });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("BETTER_AUTH_SECRET is not set");
+    expect(run.stderr).not.toContain("DATABASE_URL and");
+  });
+
+  it("refuses a short secret, a missing or plain-http address and sign-in turned off, one line each", () => {
+    const run = migrate(
+      {
+        VERCEL_ENV: "production",
+        DATABASE_URL: "postgresql://nobody@127.0.0.1:9/none",
+        BETTER_AUTH_SECRET: "short-secret",
+        VITE_AUTH_ENABLED: "false",
+        ...CLEAN,
+      },
+      "--only-on-production",
+    );
+    expect(run.status).toBe(1);
+    const refusals = run.stderr.split("\n").filter((line) => line.includes("Refusing"));
+    expect(refusals).toEqual([
+      expect.stringContaining("BETTER_AUTH_SECRET has fewer than 32 characters"),
+      expect.stringContaining("BETTER_AUTH_URL is not set"),
+      expect.stringContaining('VITE_AUTH_ENABLED is "false"'),
+    ]);
+    expect(run.stderr).not.toContain("short-secret");
+
+    for (const address of ["http://precog.example.com", "precog.example.com"]) {
+      const plain = migrate({ ...PRODUCTION, BETTER_AUTH_URL: address });
+      expect(plain.status).toBe(1);
+      expect(plain.stderr).toContain("BETTER_AUTH_URL is not an https address");
+    }
+  });
+
+  it("refuses without SUPPORT_EMAIL", () => {
+    const { SUPPORT_EMAIL: _unset, ...without } = PRODUCTION;
+    const run = migrate(without, "--only-on-production");
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(
+      "SUPPORT_EMAIL is not set. Set it to the mailbox that answers support and data requests, and redeploy.",
+    );
+    expect(run.stderr).not.toContain("is still the placeholder");
+  });
+
+  it("refuses while operator.ts holds a placeholder", () => {
+    const run = migrate(
+      { ...PRODUCTION, PRECOG_OPERATOR_FILE: operatorFixture("placeholder.ts", "[STATE]") },
+      "--only-on-production",
+    );
+    expect(run.status).toBe(1);
+    const refusals = run.stderr.split("\n").filter((line) => line.includes("Refusing"));
+    expect(refusals).toEqual([
+      expect.stringContaining(
+        "GOVERNING_LAW in src/lib/precog/legal/operator.ts is still the placeholder [STATE]. Enter the real value and redeploy.",
+      ),
+    ]);
+  });
+
+  // Skipped, not failed, once the owner enters the real values.
+  it.skipIf(!PLACEHOLDER_LINE.test(readFileSync(OPERATOR_TS, "utf8")))(
+    "the committed operator.ts is refused while it holds a placeholder",
+    () => {
+      const { PRECOG_OPERATOR_FILE: _override, ...committed } = PRODUCTION;
+      const run = migrate(committed, "--only-on-production");
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("is still the placeholder");
+      expect(run.stderr).toContain("OPERATOR_LEGAL_NAME in src/lib/precog/legal/operator.ts");
+    },
+  );
+
+  it("builds a production deploy without external sign-in credentials", () => {
+    // Port 9 refuses the connection, so a run that passes the gate fails only
+    // when it reaches the database.
+    const run = migrate(PRODUCTION);
+    expect(run.stderr).not.toContain("Refusing a production build");
+    expect(run.stderr).not.toContain("AUTH_CLIENT");
+    expect(run.stderr).toContain("[migrate] failed:");
+  });
+
+  it("leaves the database alone on a preview build, even with DATABASE_URL set", () => {
+    const run = migrate(
+      { VERCEL_ENV: "preview", DATABASE_URL: "postgresql://nobody@127.0.0.1:9/none" },
+      "--only-on-production",
+    );
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain("not a production deploy");
+  });
+
+  it("skips without DATABASE_URL outside production", () => {
+    const run = migrate({});
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain("DATABASE_URL not set — skipping");
+  });
+
+  it("warns about a missing cron secret and half-configured features on production", () => {
+    const run = migrate({
+      ...PRODUCTION,
+      STRIPE_SECRET_KEY: "sk_test",
+      QBO_CLIENT_ID: "a",
+      QBO_CLIENT_SECRET: "b",
+      INTEGRATION_KEY: "c",
+    });
+    expect(run.stderr).toContain(
+      "CRON_SECRET is not set, so the weekly job is refused: no reminder email, no purge of deleted businesses or share logs, no QuickBooks refresh.",
+    );
+    expect(run.stderr).toContain(
+      "Billing is half set up: STRIPE_PRICE_ASSESSMENT, STRIPE_PRICE_MONTHLY, STRIPE_WEBHOOK_SECRET not set.",
+    );
+    expect(run.stderr).not.toContain("QuickBooks link is half set up");
+    expect(run.stderr).not.toContain("Reminder email is half set up");
+  });
+
+  it("warns on production when the tier or yearly prices are half set", () => {
+    const run = migrate({
+      ...PRODUCTION,
+      STRIPE_PRICE_TIER_1: "price_t1",
+      STRIPE_PRICE_TIER_2_ANNUAL: "price_t2y",
+      STRIPE_PRICE_TIER_3_ANNUAL: "price_t3y",
+    });
+    expect(run.stderr).toContain(
+      "Firm plan tiers is half set up: STRIPE_PRICE_TIER_2, STRIPE_PRICE_TIER_3 not set.",
+    );
+    expect(run.stderr).toContain(
+      "Yearly prices is half set up: STRIPE_PRICE_TIER_1_ANNUAL not set.",
+    );
+    // None of them set: the tiers are simply off.
+    expect(migrate(PRODUCTION).stderr).not.toMatch(/Firm plan tiers|Yearly prices/);
+  });
+
+  it("warns on production when DATABASE_URL is Neon's direct host, not the pooled one", () => {
+    const warning =
+      "DATABASE_URL is Neon's direct host. Use the pooled host (its name ends in -pooler): Precog refuses the direct host in production.";
+    // pg connects to the ?host= address (refused at once), so the run ends fast
+    // after the warnings print; the warning reads the URL's own host.
+    const direct = migrate({
+      ...PRODUCTION,
+      DATABASE_URL:
+        "postgresql://nobody@ep-quiet-sea-123456.us-east-2.aws.neon.tech:9/none?host=127.0.0.1",
+    });
+    expect(direct.stderr).toContain(warning);
+    const pooled = migrate({
+      ...PRODUCTION,
+      DATABASE_URL:
+        "postgresql://nobody@ep-quiet-sea-123456-pooler.us-east-2.aws.neon.tech:9/none?host=127.0.0.1",
+    });
+    expect(pooled.stderr).not.toContain("Neon's direct host");
+    // CI's local database is not Neon at all.
+    expect(migrate(PRODUCTION).stderr).not.toContain("Neon's direct host");
+  });
+
+  it("warns on production when Resend is set without its webhook secret", () => {
+    const resend = { ...PRODUCTION, RESEND_API_KEY: "re_test", EMAIL_FROM: "x@precog.example" };
+    const unsigned = migrate(resend);
+    expect(unsigned.stderr).toContain(
+      "RESEND_WEBHOOK_SECRET is not set, so bounce and complaint events are refused and a bouncing address keeps being emailed every week.",
+    );
+    expect(unsigned.stderr).not.toContain("Reminder email is half set up");
+    const signed = migrate({ ...resend, RESEND_WEBHOOK_SECRET: "whsec_test" });
+    expect(signed.stderr).not.toContain("RESEND_WEBHOOK_SECRET is not set");
+    // The warning is tied to Resend being set, not printed for every build.
+    expect(migrate(PRODUCTION).stderr).not.toContain("RESEND_WEBHOOK_SECRET is not set");
+  });
+
+  it("warns on production when no error tracker is set, and builds on", () => {
+    const base = PRODUCTION;
+    const bare = migrate(base);
+    expect(bare.stderr).toContain(
+      "warning: Neither SENTRY_DSN nor ERROR_REPORT_URL is set, so server errors go only to the server log",
+    );
+    expect(bare.stderr).not.toContain("Refusing a production build");
+    expect(
+      migrate({ ...base, SENTRY_DSN: "https://key@o1.ingest.sentry.io/2" }).stderr,
+    ).not.toContain("Neither SENTRY_DSN");
+    expect(
+      migrate({ ...base, ERROR_REPORT_URL: "https://hooks.example/errors" }).stderr,
+    ).not.toContain("Neither SENTRY_DSN");
+  });
+});
+
+/** Every setting the production gate requires. */
+const PRODUCTION = {
+  VERCEL_ENV: "production",
+  BETTER_AUTH_SECRET: "s".repeat(32),
+  BETTER_AUTH_URL: "https://precog.example.com",
+  DATABASE_URL: "postgresql://nobody@127.0.0.1:9/none",
+  ...CLEAN,
+};
+
+/** Runs the script with only PATH and `vars` in its environment. */
+function migrate(vars, ...args) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
+    env: { PATH: process.env.PATH, ...vars },
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+}

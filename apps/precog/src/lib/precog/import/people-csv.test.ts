@@ -1,0 +1,612 @@
+import { describe, expect, it } from "vitest";
+import { resolveTemplate } from "../active-template";
+import { getIndustryTemplate } from "../templates";
+import {
+  decodeTeamFile,
+  effectiveDuties,
+  mergeImportedPeople,
+  NO_REPLACE_MESSAGE,
+  NOT_TEXT_MESSAGE,
+  parsePeopleCsv,
+  peopleToCsv,
+  removedPeopleImpact,
+} from "./people-csv";
+import { parseRoster } from "./roster";
+import type { Person } from "../types";
+
+const dental = getIndustryTemplate("dental");
+const BOM = String.fromCharCode(0xfeff);
+
+describe("parsePeopleCsv", () => {
+  it("handles aliases, quoted commas, CRLF, BOM, labels, aliases, unknowns, and inactive values", () => {
+    const csv =
+      `${BOM}FULL NAME,JOB TITLE,Years of Service,Employed,Duties\r\n` +
+      '"Doe, Jane",office manager,2.5,no,"Take payment from customers|payroll|mystery"\r\n';
+
+    const result = parsePeopleCsv(csv, dental);
+
+    // A "Last, First" name is read as "First Last".
+    expect(result.people).toEqual([
+      {
+        id: "p-jane-doe",
+        name: "Jane Doe",
+        role: "Office Manager",
+        active: false,
+        tenureYears: 2.5,
+        entitlements: ["collect_cash", "enter_payroll"],
+      },
+    ]);
+    expect(result.issues).toEqual([{ row: 1, message: "Unknown duty: mystery" }]);
+  });
+
+  it("canonicalizes roles, deduplicates ids, and flags one name with two titles", () => {
+    const result = parsePeopleCsv(
+      "name,role,active\nAlex Smith,office manager,true\nAlex Smith,Dentist,true",
+      dental,
+    );
+
+    expect(result.people.map((person) => [person.id, person.role])).toEqual([
+      ["p-alex-smith", "Office Manager"],
+      ["p-alex-smith-2", "Dentist"],
+    ]);
+    expect(result.issues).toEqual([
+      {
+        row: 2,
+        message:
+          '"Alex Smith" appears twice with different titles; check whether this is one person',
+      },
+    ]);
+    expect(result.duplicates).toBe(0);
+  });
+
+  it("skips a row that repeats an earlier name and title", () => {
+    const result = parsePeopleCsv(
+      "name,role,active\nAlex Smith,office manager,true\nAlex Smith,Office Manager,true",
+      dental,
+    );
+    expect(result.people.map((person) => person.id)).toEqual(["p-alex-smith"]);
+    expect(result.issues).toEqual([
+      { row: 2, message: '"Alex Smith" appears twice; the importer skipped the second row' },
+    ]);
+    expect(result.duplicates).toBe(1);
+  });
+
+  it("reports a missing name column without importing rows", () => {
+    expect(parsePeopleCsv("role,active\nManager,true", dental)).toEqual({
+      people: [],
+      issues: [{ row: 0, message: "Missing a name column (header: role, active)" }],
+      rowsRead: 0,
+      invalid: 0,
+      titles: [],
+      removed: [],
+      skipped: 0,
+      duplicates: 0,
+      dropped: 0,
+      onLeave: [],
+    });
+  });
+
+  it("reads a plain list saved as a file the way a paste reads it", () => {
+    const result = parsePeopleCsv("Ana Ruiz, Owner\nBen Cole, Bookkeeper", dental);
+    expect(result.people.map((p) => [p.name, p.role])).toEqual([
+      ["Ana Ruiz", "Owner"],
+      ["Ben Cole", "Bookkeeper"],
+    ]);
+    expect(result.issues.map((issue) => issue.message).join(" ")).not.toMatch(/Missing a name/);
+  });
+
+  it("finds the header under a report title in a saved CSV file", () => {
+    const result = parsePeopleCsv(
+      'Employee Roster as of 09/01/2026\n\nEmployee Name,Job Title,Department,Status\n"Ruiz, Ana",Owner,Admin,Active\n"Ochoa, Ben",Bookkeeper,Finance,Active',
+      dental,
+    );
+    expect(result.people.map((p) => [p.name, p.role])).toEqual([
+      ["Ana Ruiz", "Owner"],
+      ["Ben Ochoa", "Bookkeeper"],
+    ]);
+    expect(result.issues).toEqual([
+      { row: 0, message: 'Skipped 1 line at the top: "Employee Roster as of 09/01/2026"' },
+    ]);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("keeps the id of anyone already on the team so their register assignments survive", () => {
+    const result = parsePeopleCsv(
+      "name,role\n  maya   CHEN ,Office Manager\nJordan Blake,Front Desk Lead\nJordan Blake,Front Desk Lead\nNew Hire,Front Desk Lead",
+      dental,
+    );
+
+    // The repeated Jordan Blake row is a duplicate and is skipped.
+    expect(result.people.map((p) => p.id)).toEqual(["p2", "p3", "p-new-hire"]);
+    expect(result.duplicates).toBe(1);
+    expect(result.people[0].name).toBe("maya   CHEN");
+    expect(result.removed.map((p) => p.id)).toEqual(
+      dental.people.filter((p) => !["p2", "p3"].includes(p.id)).map((p) => p.id),
+    );
+
+    const tpl = resolveTemplate({ industry: "dental", customPeople: result.people });
+    const before = dental.relations.filter((r) => r.personId === "p3");
+    expect(before.length).toBeGreaterThan(0);
+    expect(tpl.relations.filter((r) => r.personId === "p3")).toEqual(before);
+    expect(tpl.relations.every((r) => ["p2", "p3"].includes(r.personId))).toBe(true);
+    const owned = tpl.processes.flatMap((p) => p.ownerPersonIds ?? []);
+    expect(owned).toContain("p3");
+    expect(owned.every((id) => ["p2", "p3"].includes(id))).toBe(true);
+  });
+
+  it("counts what leaves with the people who are not in the file", () => {
+    const removed = dental.people.filter((p) => p.id === "p3");
+    expect(removedPeopleImpact(dental, removed)).toEqual({
+      assignments: dental.relations.filter((r) => r.personId === "p3").length,
+      processOwnerships: dental.processes.filter((p) => p.ownerPersonIds?.includes("p3")).length,
+    });
+    expect(removedPeopleImpact(dental, [])).toEqual({ assignments: 0, processOwnerships: 0 });
+  });
+
+  it("refuses a file far larger than a team list before reading it", () => {
+    const huge = `name,role\n${"Ana Ruiz,Owner\n".repeat(400_000)}`;
+    const result = parsePeopleCsv(huge, dental);
+    expect(result.people).toEqual([]);
+    expect(result.issues[0].message).toMatch(/far more than a team list/);
+  });
+
+  it("truncates rows over maxRows and counts the dropped rows", () => {
+    const result = parsePeopleCsv("name\nOne\nTwo\nThree", dental, { maxRows: 2 });
+
+    expect(result.people.map((person) => person.name)).toEqual(["One", "Two"]);
+    expect(result.issues).toContainEqual({
+      row: 3,
+      message: "This import reads the first 2 rows; it did not read 1 more row",
+    });
+    expect(result.dropped).toBe(1);
+  });
+
+  it("reports exactly how many roster rows were examined, duplicated, and invalid", () => {
+    const result = parsePeopleCsv(
+      "name,role\nAna Ruiz,Owner\nAna Ruiz,Owner\n,Bookkeeper\nBen Cole,Cashier",
+      dental,
+    );
+    expect(result.rowsRead).toBe(4);
+    expect(result.duplicates).toBe(1);
+    expect(result.invalid).toBe(1);
+    expect(result.people.map((person) => person.name)).toEqual(["Ana Ruiz", "Ben Cole"]);
+  });
+
+  it("round-trips people through CSV", () => {
+    const people = [
+      {
+        id: "p-jane-doe",
+        name: "Jane Doe",
+        role: "Office Manager",
+        active: true,
+        tenureYears: 4.5,
+        entitlements: ["create_vendor", "release_payment"],
+      },
+      {
+        id: "p-john-doe",
+        name: "John Doe",
+        role: "Front Desk Lead",
+        active: false,
+        tenureYears: undefined,
+        entitlements: ["view_reports_only"],
+      },
+    ];
+
+    expect(parsePeopleCsv(peopleToCsv(people), dental).people).toEqual(people);
+  });
+
+  it("carries each person's last day through export and import", () => {
+    const people = [
+      {
+        id: "p-maya",
+        name: "Maya Chen",
+        role: "Office Manager",
+        active: true,
+        lastDay: "2026-10-14",
+      },
+      { id: "p-chris", name: "Chris Diaz", role: "Front Desk Lead", active: true },
+    ];
+    const csv = peopleToCsv(people);
+    expect(csv.split(/\r?\n/)[0]).toBe(
+      "name,employee_id,role,department,tenure_years,active,last_day,entitlements,owns_business,duties_from_title,household",
+    );
+    const back = parsePeopleCsv(
+      csv,
+      { ...dental, people },
+      { today: new Date("2026-09-30T12:00:00Z") },
+    ).people;
+    expect(back.find((p) => p.name === "Maya Chen")?.lastDay).toBe("2026-10-14");
+    expect("lastDay" in (back.find((p) => p.name === "Chris Diaz") ?? {})).toBe(false);
+  });
+
+  it("keeps a matched person's last day when the file has no such column, and validates it when it does", () => {
+    const team = [
+      {
+        id: "p-maya",
+        name: "Maya Chen",
+        role: "Office Manager",
+        active: true,
+        lastDay: "2026-10-14",
+      },
+    ];
+    const tpl = { ...dental, people: team };
+    expect(parsePeopleCsv("name,role\nMaya Chen,Office Manager", tpl).people[0].lastDay).toBe(
+      "2026-10-14",
+    );
+    expect(
+      "lastDay" in parsePeopleCsv("name,role,last day\nMaya Chen,Office Manager,", tpl).people[0],
+    ).toBe(false);
+    const bad = parsePeopleCsv("name,leaving date\nMaya Chen,next month", tpl);
+    expect(bad.people[0].lastDay).toBe("2026-10-14");
+    expect(bad.issues).toContainEqual({
+      row: 1,
+      message: 'The importer cannot read the last day "next month"',
+    });
+    expect(parsePeopleCsv("name,last_day\nMaya Chen,2026-12-01", tpl).people[0].lastDay).toBe(
+      "2026-12-01",
+    );
+  });
+
+  it("reads the day order from the last-day column too", () => {
+    const today = new Date("2026-09-30T12:00:00Z");
+    const tpl = { ...dental, people: [] };
+    const { people } = parsePeopleCsv(
+      "Name,Job Title,Leaving Date\nAna Ruiz,Cashier,01/12/2026\nBen Cole,Cashier,15/12/2026",
+      tpl,
+      { today },
+    );
+    expect(people.map((p) => [p.name, p.active, p.lastDay])).toEqual([
+      ["Ana Ruiz", true, "2026-12-01"],
+      ["Ben Cole", true, "2026-12-15"],
+    ]);
+  });
+
+  it("flags a past last day that is still to come in the other day order", () => {
+    const today = new Date("2026-09-30T12:00:00Z");
+    const tpl = { ...dental, people: [] };
+    const result = parsePeopleCsv("Name,Job Title,Leaving Date\nAna Ruiz,Cashier,01/12/2026", tpl, {
+      today,
+    });
+    expect(result.people[0].lastDay).toBe("2026-01-12");
+    expect(result.issues).toContainEqual({
+      row: 1,
+      message:
+        '"Ana Ruiz" has the last day "01/12/2026": Precog read it month first as 2026-01-12, but day first it is 2026-12-01. If they have not left yet, write the date as 2026-12-01 and import again',
+    });
+    // Either way round, a date in the past raises nothing more.
+    const past = parsePeopleCsv("Name,Job Title,Leaving Date\nAna Ruiz,Cashier,03/04/2026", tpl, {
+      today,
+    });
+    expect(past.issues.map((i) => i.message).join(" ")).not.toContain("day first");
+  });
+
+  it("gives only the first duplicate row the matched person's id and last day", () => {
+    const tpl = {
+      ...dental,
+      people: [
+        {
+          id: "p-maya",
+          name: "Maya Chen",
+          role: "Office Manager",
+          active: true,
+          lastDay: "2026-10-14",
+        },
+      ],
+    };
+    const { people } = parsePeopleCsv(
+      "name,role\nMaya Chen,Office Manager\nMaya Chen,Hygienist",
+      tpl,
+    );
+    expect(people.map((p) => p.id)).toEqual(["p-maya", "p-maya-chen"]);
+    expect(people[0].lastDay).toBe("2026-10-14");
+    expect("lastDay" in people[1]).toBe(false);
+  });
+});
+
+describe("team export opened in a spreadsheet", () => {
+  it("writes a name that starts a formula as text and reads it back unchanged", () => {
+    const tpl = getIndustryTemplate("general");
+    const people = [
+      {
+        id: "x1",
+        name: '=HYPERLINK("http://evil")',
+        role: "@Clerk",
+        active: true,
+        entitlements: ["collect_cash"],
+      },
+    ];
+    const csv = peopleToCsv(people);
+    const line = csv.split(/\r?\n/)[1];
+    expect(line.startsWith("\"'=HYPERLINK")).toBe(true);
+    const back = parsePeopleCsv(csv, { ...tpl, people: [] });
+    expect(back.people[0]?.name).toBe('=HYPERLINK("http://evil")');
+  });
+});
+
+describe("the team editor's own export and imports", () => {
+  const general = getIndustryTemplate("general");
+
+  it("re-imports the team's own export with every person's duties unchanged, role-derived ones included", () => {
+    // "Owner" and "Operations Manager" take their duties from the role; the
+    // catalog's Owner seat differs from this line of business's template.
+    const team: Person[] = [
+      { id: "p1", name: "Yan Role", role: "Owner", active: true },
+      { id: "p2", name: "Zoe Test", role: "Operations Manager", active: true },
+      {
+        id: "p3",
+        name: "Ben Ochoa",
+        role: "Bookkeeper",
+        active: true,
+        entitlements: ["post_payments"],
+      },
+    ];
+    const tpl = { ...general, people: team };
+    const csv = peopleToCsv(team, general.roleTemplates);
+    const back = parsePeopleCsv(csv, tpl);
+    expect(back.people.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    for (const person of team) {
+      const read = back.people.find((p) => p.id === person.id)!;
+      expect(effectiveDuties(read, general.roleTemplates).sort(), person.name).toEqual(
+        effectiveDuties(person, general.roleTemplates).sort(),
+      );
+    }
+    // Nothing reads as updated, and role-derived duties still follow the role.
+    expect(mergeImportedPeople(team, back.people).updated).toEqual([]);
+    expect(back.people.find((p) => p.id === "p1")?.entitlements).toBeUndefined();
+    // A pasted roster naming someone with the same title keeps their duties too.
+    const pasted = parseRoster("Yan Role, Owner", tpl);
+    expect(effectiveDuties(pasted.people[0], general.roleTemplates).sort()).toEqual(
+      effectiveDuties(team[0], general.roleTemplates).sort(),
+    );
+  });
+
+  it("keeps a 'Last, First' name as written when the team's own export is re-imported", () => {
+    const team: Person[] = [
+      { id: "own-1", name: "Olga Owner", role: "Owner", active: true },
+      { id: "own-2", name: "Ochoa, Ben", role: "Bookkeeper", active: true },
+    ];
+    const back = parsePeopleCsv(peopleToCsv(team, general.roleTemplates), {
+      ...general,
+      people: team,
+    });
+    expect(back.people.map((p) => [p.id, p.name])).toEqual([
+      ["own-1", "Olga Owner"],
+      ["own-2", "Ochoa, Ben"],
+    ]);
+    expect(back.removed).toEqual([]);
+    // An HR export still reads "Ochoa, Ben" as Ben Ochoa.
+    expect(
+      parsePeopleCsv('Employee Name,Job Title\n"Ochoa, Ben",Bookkeeper', general).people[0].name,
+    ).toBe("Ben Ochoa");
+  });
+
+  it("keeps two people with one name and title from the team's own export, and numbers new placeholders after them", () => {
+    const team: Person[] = [
+      { id: "p-server-1", name: "Server 1", role: "Server", active: true },
+      { id: "p-server-3", name: "Server 3", role: "Server", active: true },
+      { id: "p-server-3-2", name: "Server 3", role: "Server", active: true },
+    ];
+    const back = parsePeopleCsv(peopleToCsv(team, general.roleTemplates), {
+      ...general,
+      people: team,
+    });
+    expect(back.people.map((p) => p.id)).toEqual(["p-server-1", "p-server-3", "p-server-3-2"]);
+    expect(back.removed).toEqual([]);
+    expect(back.issues).toEqual([]);
+  });
+
+  it("carries the employee id from an SAP SuccessFactors roster through the export, and matches a renamed person on it", () => {
+    const sap = parseRoster(
+      "Person ID External,First Name,Last Name,Job Title,Employment Status\n10001,Ana,Ruiz,Owner,Active\n10002,Ben,Ochoa,Bookkeeper,Active",
+      general,
+    );
+    expect(sap.people.map((p) => [p.id, p.employeeId])).toEqual([
+      ["emp-10001", "10001"],
+      ["emp-10002", "10002"],
+    ]);
+    const csv = peopleToCsv(sap.people, general.roleTemplates);
+    expect(csv.split(/\r?\n/)[1]).toMatch(/^Ana Ruiz,10001,Owner,/);
+
+    // The team after onboarding has its own ids; the employee id links a
+    // renamed person back to them.
+    const team: Person[] = [
+      { id: "own-1", name: "Ana Ruiz", role: "Owner", active: true, employeeId: "10001" },
+      { id: "own-2", name: "Ben Ochoa", role: "Bookkeeper", active: true, employeeId: "10002" },
+    ];
+    const renamed = parsePeopleCsv(
+      "name,employee_id,role\nAna Ruiz-Lopez,10001,Owner\nBen Ochoa,10003,Bookkeeper",
+      { ...general, people: team },
+    );
+    expect(renamed.people.map((p) => [p.id, p.name, p.employeeId])).toEqual([
+      ["own-1", "Ana Ruiz-Lopez", "10001"],
+      ["emp-10003", "Ben Ochoa", "10003"],
+    ]);
+    // Same name, another employee id: another person, and own-2 is not in the file.
+    expect(renamed.removed.map((p) => p.id)).toEqual(["own-2"]);
+  });
+
+  it("adds two pasted new hires to a 12-person team without removing anyone, and keeps what the paste does not say", () => {
+    const team: Person[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `own-${i + 1}`,
+      name: `Person ${String.fromCharCode(65 + i)}`,
+      role: "Cashier",
+      active: true,
+      tenureYears: 3,
+      department: "Store",
+      entitlements: ["collect_cash"],
+    }));
+    const tpl = { ...general, people: team };
+    const pasted = parseRoster(
+      "Nia Cole, Accounts Receivable Clerk\nOmar Reyes, Bookkeeper\nPerson A, Cashier\nPerson B, Bookkeeper",
+      tpl,
+    );
+    const merged = mergeImportedPeople(team, pasted.people);
+    expect(merged.people).toHaveLength(14);
+    expect(merged.added.map((p) => p.name)).toEqual(["Nia Cole", "Omar Reyes"]);
+    expect(merged.updated.map((p) => p.name)).toEqual(["Person B"]);
+    // Same title: the duties set for her, her years and her department stay.
+    expect(merged.people[0]).toEqual(team[0]);
+    // A new title brings its duties; years and department the paste does not give stay.
+    expect(merged.people[1]).toMatchObject({
+      role: "Bookkeeper",
+      tenureYears: 3,
+      department: "Store",
+    });
+    expect(merged.people[1].entitlements).toContain("bank_reconcile");
+  });
+
+  it("gives the duties picker the duties the engine reads for a person whose duties come from their role", () => {
+    expect(effectiveDuties({ role: "Office Manager" }, dental.roleTemplates)).toEqual(
+      dental.roleTemplates["Office Manager"],
+    );
+    expect(
+      effectiveDuties(
+        { role: "Office Manager", entitlements: ["collect_cash"] },
+        dental.roleTemplates,
+      ),
+    ).toEqual(["collect_cash"]);
+    expect(effectiveDuties({ role: "Chief Happiness Wrangler" }, {})).toEqual([
+      "view_reports_only",
+    ]);
+  });
+});
+
+describe("the owner's mark and guessed duties through a team CSV", () => {
+  const team: Person[] = [
+    {
+      id: "own-1",
+      name: "Dr. Ana Ruiz",
+      role: "Dentist",
+      active: true,
+      owner: true,
+      entitlements: ["sign_checks", "approve_vendor"],
+    },
+    {
+      id: "own-2",
+      name: "Ben Ochoa",
+      role: "Office Manager",
+      active: true,
+      owner: false,
+      dutiesFromTitle: true,
+      entitlements: ["post_payments", "prepare_deposit"],
+    },
+  ];
+
+  it("keeps both marks through the app's own export and re-import", () => {
+    const back = parsePeopleCsv(peopleToCsv(team), { ...dental, people: team }).people;
+    const ana = back.find((p) => p.name === "Dr. Ana Ruiz")!;
+    const ben = back.find((p) => p.name === "Ben Ochoa")!;
+    expect(ana.owner).toBe(true);
+    expect(ben.owner).toBe(false);
+    expect(ben.dutiesFromTitle).toBe(true);
+  });
+
+  it("reads 'x' in the owns-business column of an edited export as yes", () => {
+    const csv = peopleToCsv(team).replace(
+      "Dr. Ana Ruiz,,Dentist,,,true,,sign_checks;approve_vendor,yes",
+      "Dr. Ana Ruiz,,Dentist,,,true,,sign_checks;approve_vendor,x",
+    );
+    expect(csv).toContain(",x,");
+    const back = parsePeopleCsv(csv, { ...dental, people: [] }).people;
+    expect(back.find((p) => p.name === "Dr. Ana Ruiz")?.owner).toBe(true);
+  });
+
+  it("keeps the owner's mark when an HR roster without it is pasted over the team", () => {
+    const roster = "Employee Name,Job Title\nDr. Ana Ruiz,Dentist\nBen Ochoa,Office Manager\n";
+    const back = parsePeopleCsv(roster, { ...dental, people: team }).people;
+    expect(back.find((p) => p.name === "Dr. Ana Ruiz")?.owner).toBe(true);
+    expect(back.find((p) => p.name === "Ben Ochoa")?.owner).toBe(false);
+  });
+});
+
+describe("the household mark in the team CSV", () => {
+  const general = getIndustryTemplate("general");
+  const today = new Date("2026-10-06T12:00:00");
+  const marked = general.people.map((person, index) =>
+    index < 2 ? { ...person, householdKey: "Smith Jones" } : person,
+  );
+
+  it("survives the team's own export and re-import, and the merge reports nobody changed", () => {
+    const csv = peopleToCsv(marked, general.roleTemplates);
+    expect(csv.split("\r\n")[0].endsWith(",duties_from_title,household")).toBe(true);
+    const back = parsePeopleCsv(csv, { ...general, people: marked }, { today });
+    const merged = mergeImportedPeople(marked, back.people);
+    expect(merged.people.map((person) => person.householdKey)).toEqual(
+      marked.map((person) => person.householdKey),
+    );
+    expect(merged.updated).toEqual([]);
+  });
+
+  it("reads the column into a team with no marks, and an empty cell clears a mark", () => {
+    const csv = peopleToCsv(marked, general.roleTemplates);
+    const fresh = parsePeopleCsv(csv, { ...general, people: [] }, { today }).people;
+    expect(fresh.filter((person) => person.householdKey === "Smith Jones")).toHaveLength(2);
+    const cleared = parsePeopleCsv(peopleToCsv(general.people, general.roleTemplates), {
+      ...general,
+      people: marked,
+    }).people;
+    expect(cleared.some((person) => person.householdKey)).toBe(false);
+  });
+
+  it("keeps the marks when a re-imported file has no household column", () => {
+    const older = peopleToCsv(marked, general.roleTemplates)
+      .split("\r\n")
+      .map((line) => line.replace(/,[^,]*$/, ""))
+      .join("\r\n");
+    expect(older.split("\r\n")[0].endsWith(",duties_from_title")).toBe(true);
+    const back = parsePeopleCsv(older, { ...general, people: marked }, { today });
+    const merged = mergeImportedPeople(marked, back.people);
+    expect(merged.people.filter((person) => person.householdKey === "Smith Jones")).toHaveLength(2);
+    const roster = `Employee Name,Job Title\n${marked.map((p) => `${p.name},${p.role}`).join("\n")}`;
+    const hr = parsePeopleCsv(roster, { ...general, people: marked }, { today }).people;
+    expect(hr.filter((person) => person.householdKey === "Smith Jones")).toHaveLength(2);
+  });
+});
+
+describe("a team file that is not text", () => {
+  it("refuses an Excel workbook (a zip) and names what to do", () => {
+    const xlsx = "PK\u0003\u0004\u0014\u0000\u0006\u0000[Content_Types].xml Ana Ruiz,Owner";
+    const result = parsePeopleCsv(xlsx, dental);
+    expect(result.people).toEqual([]);
+    expect(result.removed).toEqual([]);
+    expect(result.issues).toEqual([{ row: 0, message: NOT_TEXT_MESSAGE }]);
+    expect(NOT_TEXT_MESSAGE).toBe(
+      "This looks like an Excel or other non-text file. Save it as CSV, then import it.",
+    );
+  });
+
+  it("refuses a NUL byte or another control character, and mostly unreadable text", () => {
+    expect(parsePeopleCsv("name,role\nAna\u0000 Ruiz,Owner", dental).people).toEqual([]);
+    expect(parsePeopleCsv("name,role\nAna Ruiz,Owner\u0007", dental).people).toEqual([]);
+    const junk = "name,role\n" + "��ab".repeat(40);
+    expect(parsePeopleCsv(junk, dental).issues[0].message).toBe(NOT_TEXT_MESSAGE);
+  });
+
+  it("still reads text with tabs, a closing Ctrl-Z and the odd unreadable accent", () => {
+    const tabbed = "name\trole\nAna Ruiz\tOwner\nJos� Diaz\tCashier\n\u001A";
+    expect(parsePeopleCsv(tabbed, dental).people.map((p) => p.name)).toEqual([
+      "Ana Ruiz",
+      "Jos� Diaz",
+    ]);
+  });
+
+  it("decodes a UTF-16 export by its byte-order mark", () => {
+    const text = "name,role\nAna Ruiz,Owner";
+    const bytes = new Uint8Array(2 + text.length * 2);
+    bytes.set([0xff, 0xfe]);
+    for (let i = 0; i < text.length; i++) bytes[2 + i * 2] = text.charCodeAt(i);
+    expect(decodeTeamFile(bytes)).toBe(text);
+    expect(decodeTeamFile(new TextEncoder().encode(text))).toBe(text);
+  });
+
+  it("never offers to replace the team from a headerless list of bare words", () => {
+    const words = "PKF garbage\nmore bytes here\nother stuff\nAna Ruiz, Owner";
+    const result = parsePeopleCsv(words, dental);
+    expect(result.people.length).toBeGreaterThan(0);
+    expect(result.removed).toEqual([]);
+    expect(result.issues[0]).toEqual({ row: 0, message: NO_REPLACE_MESSAGE });
+    // A headerless list with titles is still a whole team.
+    const list = parsePeopleCsv("Ana Ruiz, Owner\nBen Cole, Bookkeeper", dental);
+    expect(list.removed.length).toBe(dental.people.length);
+  });
+});

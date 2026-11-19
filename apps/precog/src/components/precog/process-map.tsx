@@ -1,0 +1,1167 @@
+import {
+  connectProcessDependency,
+  edgesWithinNodes,
+  removeProcessDependencies,
+} from "@/lib/precog/builder/map-editing";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import {
+  Background,
+  Controls,
+  MarkerType,
+  MiniMap,
+  Panel,
+  ReactFlow,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
+  type ReactFlowInstance,
+} from "@xyflow/react";
+import { toast } from "sonner";
+import "@xyflow/react/dist/style.css";
+import {
+  buildProcessMapGraph,
+  enrichProcess,
+  graphNodeIdForPriority,
+  priorityKeyForNode,
+  type ProcessMapSnapshot,
+  processMapContext,
+} from "@/lib/precog/process-graph";
+import { residualScope } from "@/lib/precog/scoring/scope";
+import { validateProcessMap } from "@/lib/precog/process-validation";
+import { HEAT_BANDS } from "@/lib/precog/scoring/bands";
+import { layoutProcessMap, stageLanes } from "@/lib/precog/process-layout";
+import {
+  buildPriorityTargets,
+  DEFAULT_LAYERS,
+  PRIORITY_BAND_LABEL,
+  predatorThermalColor,
+  terminatorThreatColor,
+  type LayerConfig,
+  type MapLayerId,
+  type MapVisionMode,
+  type PriorityTarget,
+} from "@/lib/precog/map-vision";
+import { usePractice, useTemplate } from "@/lib/precog/practice-context";
+import { useScoredMap } from "@/lib/precog/builder/use-scored-map";
+import {
+  mapAssessed,
+  mapNotAssessedNote,
+  mapSource,
+  starterMapFacts,
+  untouchedStarterProcessIds,
+} from "@/lib/precog/builder/map-state";
+import { ProcessBuilder, type BuilderPanel } from "@/components/precog/process-builder";
+import { ExportMapImageButton } from "@/components/precog/export-map-image";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import {
+  Crosshair,
+  Eye,
+  Hammer,
+  LayoutGrid,
+  Layers,
+  ListOrdered,
+  Redo2,
+  Scan,
+  Thermometer,
+  Undo2,
+} from "lucide-react";
+import type { NavFn } from "@/lib/precog/navigation";
+import {
+  LaneHeaders,
+  nodeTypes,
+  type ProcessFlowNode,
+} from "@/components/precog/process-map/nodes";
+import {
+  asMapNode,
+  EDGE_STYLE,
+  heatColorStandard,
+  layerForKind,
+} from "@/components/precog/process-map/style";
+import {
+  PredatorLegend,
+  ProcessDetail,
+  StandardLegend,
+  TerminatorLegend,
+  VisionChip,
+} from "@/components/precog/process-map/detail";
+import { isArrowKey, processAfterArrow } from "@/components/precog/process-map/keyboard";
+import { shownProcess } from "@/components/precog/process-map/selection";
+import { IndexBasis } from "@/components/precog/index-basis";
+import { count, slug } from "@/lib/precog/text";
+import { usePresentation } from "@/lib/precog/presentation";
+import { PageIntro } from "@/components/precog/page-intro";
+
+/**
+ * Stable identity matters: React Flow syncs this prop into its store on every
+ * render, and a fresh object would overwrite the options queued by focusOn().
+ */
+const FIT_ALL_OPTIONS = { padding: 0.15 } as const;
+
+/** Same reason: constant props, so a render of the map writes nothing new to React Flow's store. */
+const PRO_OPTIONS = { hideAttribution: true } as const;
+const DEFAULT_EDGE_OPTIONS = { type: "smoothstep" } as const;
+
+/** How many priority targets the stack lists before "Show all". */
+const PRIORITY_LIST_LENGTH = 12;
+
+/** Elements that handle Enter themselves; build mode's Enter-to-rename leaves them alone. */
+const OWN_ENTER_KEY = "button, a, summary, [role=button], .react-flow__node, .react-flow__edge";
+
+export function ProcessMap({
+  onNavigate,
+  initialProcessId,
+  initialBuild = false,
+  initialPanel,
+}: {
+  onNavigate?: NavFn;
+  initialProcessId?: string | null;
+  initialBuild?: boolean;
+  /** A builder panel to open on arrival in build mode ("Fix N issues" opens Validate). */
+  initialPanel?: BuilderPanel;
+}) {
+  const tpl = useTemplate();
+  const { processes } = tpl;
+  const {
+    profile,
+    setMapLayout,
+    setCustomProcesses,
+    mapCustomized,
+    undoMap,
+    redoMap,
+    canUndoMap,
+    canRedoMap,
+    recordMapHealth,
+  } = usePractice();
+  const { say } = usePresentation();
+  const [vision, setVision] = useState<MapVisionMode>("standard");
+  const [build, setBuild] = useState(initialBuild);
+  const [showLayerPanel, setShowLayerPanel] = useState(!initialBuild);
+  /** Live positions while dragging; committed to the profile on drag stop. */
+  const [liveLayout, setLiveLayout] = useState<Record<string, { x: number; y: number }>>({});
+  // Measured node sizes. The nodes are controlled, so React Flow's size
+  // reports must be written back onto them; without sizes the minimap draws
+  // no nodes at all.
+  const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
+  const [layers, setLayers] = useState<LayerConfig[]>(() => DEFAULT_LAYERS.map((l) => ({ ...l })));
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialProcessId ?? processes[0]?.id ?? null,
+  );
+  const [focusProcessId, setFocusProcessId] = useState<string | null>(
+    initialProcessId ?? processes[0]?.id ?? null,
+  );
+  const [showAllTargets, setShowAllTargets] = useState(false);
+  /** The dependency link selected on the canvas while building; Delete removes it. */
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialProcessId) {
+      setSelectedId(initialProcessId);
+      setFocusProcessId(initialProcessId);
+    }
+  }, [initialProcessId]);
+
+  const layerMap = useMemo(() => {
+    const m = new Map<MapLayerId, LayerConfig>();
+    for (const l of layers) m.set(l.id, l);
+    return m;
+  }, [layers]);
+
+  // Every card is built; the layer toggles only hide cards (visibleNodes), so
+  // a toggle never rebuilds or re-scores the map.
+  // Scoped as the Residual page scopes it; not the whole profile, so moving a card does not re-score the map.
+  const scope = useMemo(
+    () =>
+      residualScope({
+        decisions: profile.decisions,
+        industry: profile.industry,
+        riskVariables: profile.riskVariables,
+      }),
+    [profile.decisions, profile.industry, profile.riskVariables],
+  );
+  const graph = useMemo(
+    () => buildProcessMapGraph(tpl, profile.staff, {}, scope),
+    [tpl, profile.staff, scope],
+  );
+  // Heat, hot counts and ranks describe only processes the owner has worked
+  // on: nothing while the map is not assessed, and never a starter process
+  // the owner has not touched yet.
+  const mapReady = mapAssessed(profile);
+  const notAssessedNote = mapNotAssessedNote(profile);
+  // Keep the map completeness history: the business switcher's "map N%
+  // complete", the report's change since the first point and the value proof
+  // read it. The retired Dashboard recorded it on each visit; the map screen
+  // does now, once the map is assessed, whenever the score changes.
+  const scored = useScoredMap();
+  useEffect(() => {
+    if (mapReady) recordMapHealth(scored.health.score);
+  }, [mapReady, scored.health.score, recordMapHealth]);
+  const starterIds = useMemo(
+    () =>
+      untouchedStarterProcessIds({
+        industry: profile.industry,
+        customPeople: profile.customPeople,
+        customProcesses: profile.customProcesses,
+      }),
+    [profile.industry, profile.customPeople, profile.customProcesses],
+  );
+  const isScored = useCallback(
+    (processId: string | undefined) => mapReady && !(processId && starterIds.has(processId)),
+    [mapReady, starterIds],
+  );
+
+  const pinned = useMemo(
+    () => ({ ...(profile.mapLayout ?? {}), ...liveLayout }),
+    [profile.mapLayout, liveLayout],
+  );
+
+  /** Nodes on the canvas after layer toggles; the layout only reserves room for what is shown. */
+  const visibleNodes = useMemo(
+    () =>
+      graph.nodes.filter((n) => {
+        const layer = layerMap.get(layerForKind(n.kind));
+        if (n.kind === "person" && !(layerMap.get("person")?.visible ?? true)) return false;
+        if (n.kind === "control" && !(layerMap.get("control")?.visible ?? true)) return false;
+        return layer?.visible !== false;
+      }),
+    [graph.nodes, layerMap],
+  );
+
+  // Keep the selection on a card that is shown when the map or the layers change.
+  useEffect(() => {
+    if (selectedId && !visibleNodes.some((n) => n.id === selectedId)) {
+      const first = processes[0]?.id ?? null;
+      setSelectedId(first);
+      setFocusProcessId(first);
+    }
+  }, [visibleNodes, processes, selectedId]);
+
+  const positions = useMemo(
+    () => layoutProcessMap(visibleNodes, graph.edges, pinned),
+    [visibleNodes, graph.edges, pinned],
+  );
+
+  const lanes = useMemo(() => stageLanes(visibleNodes, positions), [visibleNodes, positions]);
+
+  const rf = useRef<ReactFlowInstance<ProcessFlowNode, Edge> | null>(null);
+  /** Process to frame once the canvas has mounted (deep link from another tab). */
+  const pendingFocus = useRef<string | null>(initialProcessId ?? null);
+
+  /** Zoom to a process and everything wired to it. */
+  const focusOn = useCallback(
+    (id: string) => {
+      const inst = rf.current;
+      if (!inst) return;
+      const ids = new Set<string>([id]);
+      for (const e of graph.edges) {
+        if (e.source === id) ids.add(e.target);
+        if (e.target === id) ids.add(e.source);
+      }
+      const nodes = visibleNodes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id }));
+      if (!nodes.length) return;
+      void inst.fitView({ nodes, duration: 400, padding: 0.35, maxZoom: 1.2 });
+    },
+    [graph.edges, visibleNodes],
+  );
+
+  const fitAll = useCallback(() => {
+    void rf.current?.fitView({ ...FIT_ALL_OPTIONS, duration: 400 });
+  }, []);
+
+  /** Drop every hand-placed position and return to stage lanes. */
+  const autoArrange = useCallback(() => {
+    const pinnedCount = Object.keys(profile.mapLayout ?? {}).length;
+    setLiveLayout({});
+    setMapLayout({});
+    window.requestAnimationFrame(() => fitAll());
+    toast.success("Arranged by stage", {
+      description: pinnedCount
+        ? `${count(pinnedCount, "hand-placed position")} cleared. Ctrl+Z puts them back.`
+        : "Every process sits in its stage lane.",
+    });
+  }, [profile.mapLayout, setMapLayout, fitAll]);
+
+  /** Processes in reading order: stage lane, then top to bottom. */
+  const processOrder = useMemo(
+    () =>
+      visibleNodes
+        .filter((n) => n.kind === "process")
+        .map((n) => ({
+          id: n.id,
+          stage: Number(n.data.stage ?? 0),
+          y: positions.get(n.id)?.y ?? 0,
+        }))
+        .sort((a, b) => a.stage - b.stage || a.y - b.y),
+    [visibleNodes, positions],
+  );
+
+  /** Moves the selection one step for an arrow key; the id selected, or undefined on an empty map. */
+  const stepSelection = useCallback(
+    (key: Parameters<typeof processAfterArrow>[2]) => {
+      const next = processAfterArrow(processOrder, focusProcessId, key);
+      if (!next) return undefined;
+      setSelectedId(next.id);
+      setFocusProcessId(next.id);
+      focusOn(next.id);
+      return next.id;
+    },
+    [processOrder, focusProcessId, focusOn],
+  );
+
+  // Build-mode keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo; arrows step between
+  // processes (left/right = stage, up/down = within a stage); F frames the selection; Enter edits
+  // the name. Never fires inside inputs.
+  useEffect(() => {
+    if (!build) return;
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      )
+        return;
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod) {
+        if (k === "z" && e.shiftKey) {
+          e.preventDefault();
+          redoMap();
+        } else if (k === "z") {
+          e.preventDefault();
+          undoMap();
+        } else if (k === "y") {
+          e.preventDefault();
+          redoMap();
+        }
+        return;
+      }
+      if (e.altKey) return;
+      if (isArrowKey(e.key)) {
+        if (stepSelection(e.key)) e.preventDefault();
+        return;
+      }
+      if (k === "f" && focusProcessId) {
+        e.preventDefault();
+        focusOn(focusProcessId);
+        return;
+      }
+      if (k === "a" && e.shiftKey) {
+        e.preventDefault();
+        autoArrange();
+        return;
+      }
+      // Enter on a button, link, card or link line belongs to that element.
+      if (e.key === "Enter" && focusProcessId && !t?.closest(OWN_ENTER_KEY)) {
+        const field = document.querySelector<HTMLInputElement>('[data-builder-field="name"]');
+        if (field) {
+          e.preventDefault();
+          field.focus();
+          field.select();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [build, undoMap, redoMap, stepSelection, focusProcessId, focusOn, autoArrange]);
+
+  /**
+   * Arrows on a focused card. React Flow would nudge a selected card 5 px,
+   * a move Precog never saves, while the map also stepped the selection, so
+   * the event stops here and only the selection moves, taking the focus along.
+   */
+  const onCardArrowCapture = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!build || !isArrowKey(e.key) || e.altKey || e.ctrlKey || e.metaKey) return;
+      const card = (e.target as HTMLElement).closest<HTMLElement>(".react-flow__node");
+      if (!card) return;
+      e.stopPropagation();
+      const next = stepSelection(e.key);
+      if (!next) return;
+      e.preventDefault();
+      window.requestAnimationFrame(() =>
+        card
+          .closest(".react-flow")
+          ?.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(next)}"]`)
+          ?.focus({ preventScroll: true }),
+      );
+    },
+    [build, stepSelection],
+  );
+
+  /** The priority stack, and the Heat and Priority views' colours. */
+  const priorities: PriorityTarget[] = useMemo(
+    () => buildPriorityTargets(graph, isScored),
+    [graph, isScored],
+  );
+
+  const priorityById = useMemo(() => {
+    const m = new Map<string, PriorityTarget>();
+    for (const t of priorities) {
+      m.set(t.id, t);
+      if (t.processId && t.kind !== "process") {
+        m.set(`${t.processId}::${t.kind}::${t.id}`, t);
+      }
+    }
+    return m;
+  }, [priorities]);
+
+  const rfNodes: ProcessFlowNode[] = useMemo(() => {
+    return visibleNodes.map((n) => {
+      const p = positions.get(n.id) ?? { x: 0, y: 0 };
+      const layer = layerMap.get(layerForKind(n.kind));
+      const pri =
+        priorityById.get(n.id) ??
+        priorityById.get(
+          n.processId && n.kind !== "process"
+            ? `${n.processId}::${n.kind}::${priorityKeyForNode(n)}`
+            : priorityKeyForNode(n),
+        );
+      const priority = pri?.priority ?? n.severity ?? 0;
+      return {
+        id: n.id,
+        type: n.kind,
+        position: p,
+        draggable: build && n.kind === "process",
+        connectable: build && n.kind === "process",
+        // Delete removes a selected link only; with a card selected it would
+        // otherwise take every link attached to the card.
+        deletable: false,
+        data: {
+          ...n,
+          vision,
+          interactive: layer?.interactive !== false,
+          priority,
+          immediate: pri?.immediate,
+          unscored: !isScored(n.kind === "process" ? n.id : n.processId),
+        },
+        selected: n.id === selectedId,
+        ...(measured[n.id] ? { measured: measured[n.id] } : {}),
+      };
+    });
+  }, [
+    visibleNodes,
+    positions,
+    selectedId,
+    vision,
+    layerMap,
+    priorityById,
+    build,
+    isScored,
+    measured,
+  ]);
+
+  /** Select a card (by click, or Enter / Space on the focused card) and the process it belongs to. */
+  const selectNode = useCallback(
+    (id: string) => {
+      const n = graph.nodes.find((x) => x.id === id);
+      if (!n || layerMap.get(layerForKind(n.kind))?.interactive === false) return;
+      setSelectedId(id);
+      setSelectedEdgeId(null);
+      if (n.kind === "process") setFocusProcessId(n.id);
+      else if (n.processId) setFocusProcessId(n.processId);
+    },
+    [graph.nodes, layerMap],
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<ProcessFlowNode>[]) => {
+      const moves: Record<string, { x: number; y: number }> = {};
+      const sizes: Record<string, { width: number; height: number }> = {};
+      for (const c of changes) {
+        if (c.type === "position" && c.position) moves[c.id] = c.position;
+        if (c.type === "dimensions" && c.dimensions) sizes[c.id] = c.dimensions;
+        // React Flow reports keyboard selection (Enter / Space on a focused card) this way.
+        if (c.type === "select" && c.selected) selectNode(c.id);
+      }
+      if (Object.keys(moves).length) setLiveLayout((l) => ({ ...l, ...moves }));
+      if (Object.keys(sizes).length) {
+        setMeasured((m) => {
+          const changed = Object.entries(sizes).some(
+            ([id, d]) => m[id]?.width !== d.width || m[id]?.height !== d.height,
+          );
+          return changed ? { ...m, ...sizes } : m;
+        });
+      }
+    },
+    [selectNode],
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      for (const c of changes) {
+        if (c.type !== "select") continue;
+        if (c.selected && build) setSelectedEdgeId(c.id);
+        else setSelectedEdgeId((cur) => (cur === c.id ? null : cur));
+      }
+    },
+    [build],
+  );
+
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: ProcessFlowNode, dragged: ProcessFlowNode[] = []) => {
+      const moved = (dragged.length ? dragged : [node]).filter(
+        (n) => asMapNode(n.data).kind === "process",
+      );
+      if (!moved.length) return;
+      setMapLayout((layout) => ({
+        ...layout,
+        ...Object.fromEntries(moved.map((n) => [n.id, n.position])),
+      }));
+      setLiveLayout((layout) => {
+        const next = { ...layout };
+        for (const n of moved) delete next[n.id];
+        return next;
+      });
+    },
+    [setMapLayout],
+  );
+
+  const processIds = useMemo(() => new Set(processes.map((p) => p.id)), [processes]);
+  const isValidConnection = useCallback(
+    (connection: Connection | Edge) =>
+      Boolean(
+        build &&
+        connection.source &&
+        connection.target &&
+        connection.source !== connection.target &&
+        processIds.has(connection.source) &&
+        processIds.has(connection.target),
+      ),
+    [build, processIds],
+  );
+
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (!isValidConnection(connection)) return;
+      const source = connection.source;
+      const target = connection.target;
+      if (connectProcessDependency(processes, source, target) === processes) return;
+      const next = connectProcessDependency(processes, source, target);
+      setCustomProcesses((current) => connectProcessDependency(current, source, target));
+      const linked = `${processes.find((p) => p.id === target)?.name} now depends on ${processes.find((p) => p.id === source)?.name}.`;
+      // The validator scores a loop as an error; say so while the owner can still undo it.
+      const loop = validateProcessMap(next, tpl.people, new Set(), {}).find(
+        (i) => i.id === "cycle",
+      );
+      if (loop) {
+        toast.warning("Dependency linked, but it closes a loop", {
+          description: `${linked} ${loop.message}. Map completeness counts a loop as an error; Ctrl+Z removes the link.`,
+        });
+      } else {
+        toast.success("Dependency linked", { description: linked });
+      }
+    },
+    [isValidConnection, processes, setCustomProcesses, tpl.people],
+  );
+
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      if (!build) return;
+      const ids = new Set(deleted.map((edge) => edge.id));
+      const links = graph.edges.filter((edge) => edge.kind === "depends" && ids.has(edge.id));
+      if (!links.length) return;
+      setCustomProcesses((current) => removeProcessDependencies(current, links));
+      setSelectedEdgeId(null);
+      toast(`Removed ${count(links.length, "dependency link")}`, {
+        description: "Ctrl+Z puts it back.",
+      });
+    },
+    [build, graph.edges, setCustomProcesses],
+  );
+
+  const visibleEdges = useMemo(
+    () => edgesWithinNodes(graph.edges, visibleNodes),
+    [graph.edges, visibleNodes],
+  );
+
+  const rfEdges: Edge[] = useMemo(() => {
+    const depInteractive = layerMap.get("depends")?.interactive !== false;
+    const depVisible = layerMap.get("depends")?.visible !== false;
+    // Cards on hidden layers are already gone (visibleEdges keeps only links
+    // between shown cards); the Dependencies layer hides process-to-process links.
+    return visibleEdges
+      .filter((e) => depVisible || (e.kind !== "depends" && e.kind !== "feeds"))
+      .map((e) => {
+        const style = EDGE_STYLE[e.kind] ?? EDGE_STYLE.depends;
+        const isDep = e.kind === "depends" || e.kind === "feeds";
+        let stroke = style.stroke;
+        if (vision === "predator") {
+          stroke = isDep
+            ? predatorThermalColor(50)
+            : predatorThermalColor(e.kind === "has_risk" || e.kind === "control" ? 80 : 40);
+        } else if (vision === "terminator") {
+          stroke =
+            e.kind === "has_risk" || e.kind === "control" ? "rgb(255, 50, 40)" : "rgb(120, 40, 35)";
+        }
+        const passiveDep = isDep && !depInteractive;
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          deletable: build && e.kind === "depends",
+          selected: build && e.id === selectedEdgeId,
+          // An inferred link (an output of one process matches an input of
+          // the next) is dashed and says so; only drawn links can be deleted.
+          label:
+            vision !== "standard"
+              ? undefined
+              : e.kind === "feeds" && e.label
+                ? `feeds: ${e.label}`
+                : e.label,
+          animated: isDep && depInteractive && vision !== "terminator",
+          style: {
+            stroke,
+            strokeWidth: isDep ? 2 : 1.25,
+            strokeDasharray: style.dashed || passiveDep || e.kind === "feeds" ? "4 3" : undefined,
+            opacity: passiveDep ? 0.35 : vision === "terminator" ? 0.85 : 1,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: stroke,
+            width: 16,
+            height: 16,
+          },
+          labelStyle: { fill: "var(--color-muted)", fontSize: 12 },
+          interactionWidth: passiveDep ? 1 : 12,
+        };
+      });
+  }, [visibleEdges, vision, layerMap, build, selectedEdgeId]);
+
+  const selectedNode = graph.nodes.find((n) => n.id === selectedId);
+  const processId =
+    selectedNode?.processId ??
+    (selectedNode?.kind === "process" ? selectedNode.id : focusProcessId);
+  // Scored once per selection or map change, not on every drag frame.
+  const snapshot: ProcessMapSnapshot | null = useMemo(() => {
+    const shown = shownProcess(processes, processId);
+    return shown
+      ? enrichProcess(tpl, shown, profile.staff, processMapContext(tpl, profile.staff, scope))
+      : null;
+  }, [tpl, processes, processId, profile.staff, scope]);
+
+  const onNodeClick = useCallback(
+    (_: unknown, node: ProcessFlowNode) => selectNode(node.id),
+    [selectNode],
+  );
+
+  const onEdgeClick = useCallback(
+    (_: unknown, edge: Edge) => {
+      if (!build) return;
+      if (edge.deletable) {
+        setSelectedEdgeId(edge.id);
+        return;
+      }
+      if (graph.edges.some((e) => e.id === edge.id && e.kind === "feeds")) {
+        toast("Precog inferred this link", {
+          description:
+            "An output of one process matches an input of the next. Edit those Inputs or Outputs to remove it.",
+        });
+      }
+    },
+    [build, graph.edges],
+  );
+
+  const whiteHot = priorities.filter((p) => p.band === "white_hot").length;
+  const immediate = priorities.filter((p) => p.immediate).length;
+  const hotCount = graph.snapshots.filter(
+    (s) => isScored(s.process.id) && s.heat >= HEAT_BANDS.hot,
+  ).length;
+  const starterLeft = mapSource(profile) === "own" ? starterIds.size : 0;
+
+  function toggleLayer(id: MapLayerId, field: "visible" | "interactive") {
+    setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: !l[field] } : l)));
+  }
+
+  const minimapColor = useCallback(
+    (n: Node) => {
+      const d = asMapNode(n.data);
+      const p = d.priority ?? d.severity ?? 0;
+      if (vision === "predator") return predatorThermalColor(p);
+      if (vision === "terminator") return terminatorThreatColor(p);
+      return heatColorStandard(d.severity);
+    },
+    [vision],
+  );
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <div className="mb-3 flex flex-wrap items-center gap-2 empty:hidden">
+          {mapSource(profile) === "starter" ? (
+            <Badge variant="default">
+              Sample process map from the {starterMapFacts(profile).example}
+            </Badge>
+          ) : starterLeft > 0 ? (
+            <Badge variant="default">
+              Your map · {starterLeft} of {graph.snapshots.length} processes still from the starter
+            </Badge>
+          ) : (
+            mapCustomized && <Badge variant="ok">Your custom map</Badge>
+          )}
+        </div>
+        <PageIntro
+          tab="map"
+          purpose="Each process your business runs, who owns it, and where the risk sits."
+          method={
+            <p>
+              Start from the industry template, then press{" "}
+              <strong className="text-fg">Build</strong> to add your own processes, owners, risks,
+              and controls; every edit{" "}
+              {say("re-scores what is still exposed", "re-scores residual risk")} at once. Switch to{" "}
+              <strong className="text-fg">Heat</strong> to color each card by its heat, or{" "}
+              <strong className="text-fg">Priority</strong> to pick out what to act on now.
+            </p>
+          }
+        />
+
+        {/* View switcher */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <VisionChip
+            active={vision === "standard"}
+            onClick={() => setVision("standard")}
+            icon={<Eye className="size-3.5" />}
+            label="Standard"
+          />
+          <VisionChip
+            active={vision === "predator"}
+            onClick={() => setVision("predator")}
+            icon={<Thermometer className="size-3.5" />}
+            label="Heat"
+            accent="predator"
+          />
+          <VisionChip
+            active={vision === "terminator"}
+            onClick={() => setVision("terminator")}
+            icon={<Crosshair className="size-3.5" />}
+            label="Priority"
+            accent="terminator"
+          />
+          <Button size="sm" variant="secondary" onClick={() => setShowLayerPanel((v) => !v)}>
+            <Layers className="size-3.5" />
+            Show on map
+          </Button>
+          <Button
+            size="sm"
+            variant={build ? "default" : "secondary"}
+            onClick={() => {
+              setBuild((v) => !v);
+              if (!build) {
+                setVision("standard");
+                setShowLayerPanel(false);
+              }
+            }}
+          >
+            <Hammer className="size-3.5" />
+            {build ? "Building" : "Build"}
+          </Button>
+        </div>
+
+        {build && (
+          <div className="mt-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-xs text-muted">
+            <p>
+              <span className="font-semibold text-fg">Build mode.</span> Drag process boxes to
+              arrange your value stream. Drag from the right handle of one process to the left
+              handle of another to wire dependencies. Click a process to edit it — or insert a
+              reusable block from the builder panel.
+            </p>
+            <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-border bg-surface">
+              <button
+                type="button"
+                onClick={undoMap}
+                disabled={!canUndoMap}
+                title="Undo map layout (Ctrl+Z)"
+                aria-label="Undo map layout"
+                className="inline-flex h-8 items-center gap-1 px-2.5 text-muted hover:bg-elevated hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <Undo2 className="size-3.5" />
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={redoMap}
+                disabled={!canRedoMap}
+                title="Redo map layout (Ctrl+Shift+Z)"
+                aria-label="Redo map layout"
+                className="inline-flex h-8 items-center gap-1 border-l border-border px-2.5 text-muted hover:bg-elevated hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <Redo2 className="size-3.5" />
+                Redo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {vision === "predator" && (
+          <div className="mt-4 rounded-xl border border-border bg-neutral-900 p-3 predator-hud">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-orange-100/90">
+              <Scan className="size-4 text-orange-200" />
+              <span className="font-semibold tracking-wide">Heat view</span>
+              <span className="text-white/50">·</span>
+              {mapReady ? (
+                <>
+                  <span>{whiteHot} white-hot</span>
+                  <span className="text-white/50">·</span>
+                  <span>
+                    {priorities.filter((p) => p.band === "critical").length} high priority
+                  </span>
+                </>
+              ) : (
+                <span>Not assessed yet</span>
+              )}
+            </div>
+            <div className="predator-thermal-bar mt-2 h-2.5 w-full rounded-full" />
+            <div className="mt-1 flex justify-between text-xs text-white/55">
+              <span>Blue · low</span>
+              <span>Priority</span>
+              <span>White-hot · top priority</span>
+            </div>
+          </div>
+        )}
+
+        {vision === "terminator" && (
+          <div className="mt-4 rounded-xl border border-red-900/50 bg-neutral-900 p-3 text-xs">
+            <p className="font-semibold text-red-200">Priority view</p>
+            <p className="mt-1 text-red-300/90">
+              The aim is residual risk cut to a reasonable level, not to zero.{" "}
+              {mapReady
+                ? `${count(immediate, "target needs", "targets need")} action now.`
+                : "Precog ranks nothing until you assess the map."}
+            </p>
+          </div>
+        )}
+
+        <p className="mt-3 text-xs text-subtle">
+          {mapReady
+            ? `${count(graph.snapshots.length, "process", "processes")} · ${hotCount} hot · ${count(priorities.length, "ranked target")}${
+                starterLeft > 0 ? ` · ${starterLeft} starter, not scored` : ""
+              } · drag to pan, scroll to zoom`
+            : `${count(graph.snapshots.length, "process", "processes")} · not assessed yet · drag to pan, scroll to zoom`}
+        </p>
+        {mapReady && (
+          <div className="mt-1 max-w-2xl space-y-0.5">
+            <p className="text-xs text-subtle">
+              Heat and priority are 0–100 indices; severity (S) and likelihood (L) run from 1 to 5.
+            </p>
+            <IndexBasis />
+          </div>
+        )}
+        {notAssessedNote && <p className="mt-1 max-w-2xl text-xs text-muted">{notAssessedNote}</p>}
+      </section>
+
+      {/* Columns may shrink below their content, so nothing pushes the page sideways on a phone. */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-3">
+          {showLayerPanel && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Layers className="size-4" />
+                  Show on map
+                </CardTitle>
+                <CardDescription>
+                  Show draws a layer&apos;s cards on the map; clickable lets you select them and
+                  ranks them in Most urgent processes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {layers.map((l) => (
+                    <li
+                      key={l.id}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border bg-elevated px-2.5 py-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-fg">
+                          {say(l.plain?.label ?? l.label, l.label)}
+                        </p>
+                        <p className="truncate text-xs text-subtle">
+                          {say(l.plain?.description ?? l.description, l.description)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <label className="flex items-center gap-1 text-xs text-muted">
+                          <input
+                            type="checkbox"
+                            checked={l.visible}
+                            onChange={() => toggleLayer(l.id, "visible")}
+                            className="size-3.5 accent-[var(--color-primary)]"
+                          />
+                          show
+                        </label>
+                        <label className="flex items-center gap-1 text-xs text-muted">
+                          <input
+                            type="checkbox"
+                            checked={l.interactive}
+                            onChange={() => toggleLayer(l.id, "interactive")}
+                            disabled={!l.visible}
+                            className="size-3.5 accent-[var(--color-accent)]"
+                          />
+                          clickable
+                        </label>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="overflow-hidden p-0">
+            <div
+              className={cn(
+                "relative h-[min(70vh,640px)] w-full bg-panel",
+                vision === "predator" && "vision-predator",
+                vision === "terminator" && "vision-terminator",
+              )}
+            >
+              {vision === "terminator" && (
+                <div className="terminator-scan-sweep absolute inset-x-0 top-0 z-10 h-1/3" />
+              )}
+              <ReactFlow
+                onKeyDownCapture={onCardArrowCapture}
+                nodes={rfNodes}
+                edges={rfEdges}
+                nodeTypes={nodeTypes}
+                onNodeClick={onNodeClick}
+                onNodesChange={onNodesChange}
+                onNodeDragStop={onNodeDragStop}
+                onConnect={onConnect}
+                onEdgesChange={onEdgesChange}
+                onEdgeClick={onEdgeClick}
+                onPaneClick={() => setSelectedEdgeId(null)}
+                onEdgesDelete={onEdgesDelete}
+                isValidConnection={isValidConnection}
+                nodesDraggable={build}
+                nodesConnectable={build}
+                // Links are keyboard stops only while building, where Delete removes one.
+                edgesFocusable={build}
+                deleteKeyCode={build ? "Delete" : null}
+                onInit={(inst) => {
+                  rf.current = inst;
+                  if (pendingFocus.current) {
+                    const id = pendingFocus.current;
+                    pendingFocus.current = null;
+                    window.requestAnimationFrame(() => focusOn(id));
+                  }
+                }}
+                fitView
+                fitViewOptions={FIT_ALL_OPTIONS}
+                minZoom={0.2}
+                maxZoom={1.6}
+                proOptions={PRO_OPTIONS}
+                defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+              >
+                {vision === "standard" && <LaneHeaders lanes={lanes} />}
+                <Background
+                  gap={18}
+                  size={1}
+                  color={
+                    vision === "terminator"
+                      ? "rgba(255,40,40,0.15)"
+                      : vision === "predator"
+                        ? "rgba(80,120,200,0.2)"
+                        : "var(--color-border)"
+                  }
+                />
+                <Controls showInteractive={false} />
+                {/* Below sm the bottom-centre legend would sit on top of the minimap. */}
+                <MiniMap
+                  className="hidden sm:block"
+                  nodeStrokeWidth={2}
+                  pannable
+                  zoomable
+                  bgColor="rgba(21, 24, 32, 0.92)"
+                  maskColor={vision === "terminator" ? "rgba(40,0,0,0.65)" : "rgba(0,0,0,0.55)"}
+                  nodeColor={minimapColor}
+                />
+                {/* Bottom centre: at the top left the legend covered the first stage label. */}
+                <Panel position="bottom-center" className="m-2!">
+                  {vision === "standard" ? (
+                    <StandardLegend />
+                  ) : vision === "predator" ? (
+                    <PredatorLegend />
+                  ) : (
+                    <TerminatorLegend immediate={mapReady ? immediate : null} />
+                  )}
+                </Panel>
+                <Panel position="top-right" className="m-2! flex items-center gap-1">
+                  {build && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={autoArrange}
+                        title="Put every process back in its stage lane (Shift+A)"
+                      >
+                        <LayoutGrid className="size-3.5" /> Arrange
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!focusProcessId}
+                        onClick={() => focusProcessId && focusOn(focusProcessId)}
+                        title="Zoom to the selected process and its links (F)"
+                      >
+                        <Crosshair className="size-3.5" /> Focus
+                      </Button>
+                    </>
+                  )}
+                  <ExportMapImageButton
+                    fileName={`${slug(profile.practiceName) || "process-map"}-map-${vision}`}
+                    background={
+                      vision === "terminator"
+                        ? "#0a0000"
+                        : vision === "predator"
+                          ? "#05070d"
+                          : "#151820"
+                    }
+                  />
+                </Panel>
+              </ReactFlow>
+            </div>
+          </Card>
+        </div>
+
+        <div className="min-w-0 space-y-3">
+          {build && (
+            <ProcessBuilder
+              selectedProcessId={processId ?? null}
+              onSelectProcess={(id) => {
+                setSelectedId(id);
+                setFocusProcessId(id);
+                focusOn(id);
+              }}
+              onClose={() => setBuild(false)}
+              initialPanel={initialPanel}
+            />
+          )}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <ListOrdered className="size-4" />
+                Most urgent processes
+              </CardTitle>
+              <CardDescription>
+                Heat × realistic impact · white-hot needs both high
+                {priorities.length > PRIORITY_LIST_LENGTH &&
+                  ` · top ${showAllTargets ? priorities.length : PRIORITY_LIST_LENGTH} of ${priorities.length}`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="max-h-[320px] space-y-1.5 overflow-y-auto">
+              {notAssessedNote && <p className="text-xs text-muted">{notAssessedNote}</p>}
+              {!notAssessedNote && priorities.length === 0 && starterLeft > 0 && (
+                <p className="text-xs text-muted">
+                  Every process on the map is still as the starter had it. Assign an owner or edit a
+                  process, and Precog ranks it here.
+                </p>
+              )}
+              {(showAllTargets ? priorities : priorities.slice(0, PRIORITY_LIST_LENGTH)).map(
+                (t, i) => (
+                  <button
+                    key={`${t.kind}-${t.processId ?? ""}-${t.id}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(graphNodeIdForPriority(t, graph.nodes));
+                      if (t.processId) {
+                        setFocusProcessId(t.processId);
+                        focusOn(t.processId);
+                      }
+                    }}
+                    className={cn(
+                      "flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors hover:border-border-strong",
+                      t.immediate ? "border-danger/40 bg-danger/10" : "border-border bg-elevated",
+                    )}
+                  >
+                    <span className="w-5 shrink-0 tabular text-subtle">{i + 1}</span>
+                    <span
+                      className="mt-0.5 size-2.5 shrink-0 rounded-full"
+                      style={{
+                        background:
+                          vision === "terminator"
+                            ? terminatorThreatColor(t.priority)
+                            : predatorThermalColor(t.priority),
+                        boxShadow:
+                          t.band === "white_hot"
+                            ? `0 0 8px ${predatorThermalColor(t.priority)}`
+                            : undefined,
+                      }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1">
+                        <span className="truncate font-medium text-fg">{t.label}</span>
+                        <Badge
+                          variant={
+                            t.band === "white_hot" || t.band === "critical"
+                              ? "danger"
+                              : t.band === "elevated"
+                                ? "warn"
+                                : "default"
+                          }
+                        >
+                          {PRIORITY_BAND_LABEL[t.band]}
+                        </Badge>
+                        {t.immediate && <Badge variant="danger">NOW</Badge>}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {t.kind} · priority {t.priority} · {t.impactHint}
+                      </span>
+                    </span>
+                  </button>
+                ),
+              )}
+              {priorities.length > PRIORITY_LIST_LENGTH && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTargets((v) => !v)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {showAllTargets
+                    ? `Show the top ${PRIORITY_LIST_LENGTH}`
+                    : `Show all ${priorities.length}`}
+                </button>
+              )}
+            </CardContent>
+          </Card>
+
+          {snapshot ? (
+            <ProcessDetail
+              snapshot={snapshot}
+              selectedNode={selectedNode}
+              unscored={!isScored(snapshot.process.id)}
+              priority={
+                priorityById.get(snapshot.process.id) ??
+                priorities.find((p) => p.processId === snapshot.process.id)
+              }
+              vision={vision}
+              onNavigate={onNavigate}
+              onSelectProcess={(id) => {
+                setSelectedId(id);
+                setFocusProcessId(id);
+              }}
+            />
+          ) : (
+            <Card>
+              <CardContent className="p-4 text-sm text-muted">
+                Select a node to inspect.
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

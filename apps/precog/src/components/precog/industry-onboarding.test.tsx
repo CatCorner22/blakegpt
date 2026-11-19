@@ -1,0 +1,203 @@
+import { describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+
+const practice = vi.hoisted(() => ({
+  profile: { industry: "dental", practiceName: "", businessId: "biz_test" },
+}));
+
+vi.mock("@/lib/precog/practice-context", () => ({
+  usePractice: () => ({
+    profile: practice.profile,
+    completeOnboarding: () => {},
+    startOwnBusiness: () => {},
+    setPlannedAbsences: () => {},
+    cancelSetup: async () => {},
+    setupReturnsTo: null,
+  }),
+}));
+
+// The legal footer's links render as plain anchors outside a router.
+vi.mock("@tanstack/react-router", async (original) => ({
+  ...(await original<typeof import("@tanstack/react-router")>()),
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
+}));
+
+const { IndustryOnboarding, MappingScopeAttestation } = await import("./industry-onboarding");
+
+/** The first render, as the server draws it, with markup tags removed. */
+function firstRender(
+  practiceName: string,
+  industry = "dental",
+  initialStep?: "industry" | "questions" | "money" | "team",
+) {
+  practice.profile = { industry, practiceName, businessId: "biz_test" };
+  const html = renderToStaticMarkup(<IndustryOnboarding initialStep={initialStep} />);
+  return { html, text: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") };
+}
+
+describe("IndustryOnboarding, first render", () => {
+  it("asks for the line of business as a named radio group and calls the fictional team the sample", () => {
+    const { html, text } = firstRender("");
+    expect(text).toContain("What kind of organization is this?");
+    expect(html).toContain('role="radiogroup" aria-labelledby="industry-onboarding-title"');
+    expect(html.match(/role="radio"/g)).toHaveLength(8);
+    expect(html.match(/aria-checked="true"/g)).toHaveLength(1);
+    expect(text).toContain("Explore the fictional sample");
+    expect(text).not.toMatch(/\bdemo\b/i);
+    expect(text).not.toMatch(/switch industry/);
+  });
+
+  it("shows each line of business as a name and one line, with the pack's sample and cases folded", () => {
+    const { html, text } = firstRender("");
+    // The cards carry the name and tagline only: about 120 words for the
+    // whole choice, not a paragraph per card.
+    const cards = html.match(/<button[^>]*role="radio"[\s\S]*?<\/button>/g) ?? [];
+    expect(cards).toHaveLength(8);
+    for (const card of cards) {
+      expect(card).not.toContain("Sample:");
+      expect(card).not.toContain("prosecuted cases");
+      expect(
+        card
+          .replace(/<[^>]+>/g, " ")
+          .split(/\s+/)
+          .filter(Boolean).length,
+      ).toBeLessThan(16);
+    }
+    // The chosen pack's details sit in one closed disclosure below the grid.
+    expect(html).toMatch(/<details[^>]*>(?![^<]*open)/);
+    expect(text).toContain("What the Dental office pack includes");
+    expect(text).toContain("Sample: 8 processes, 6 people.");
+    expect(text).toContain("11 prosecuted cases in dental, medical and veterinary practices");
+    // One primary action; the sample is a text link under it, not a second button.
+    expect(html.match(/bg-primary text-primary-fg[^"]*"[^>]*>Set up my own business/)).toBeTruthy();
+    expect(html).toMatch(
+      /<button type="button" data-testid="explore-sample-business" class="text-primary[^"]*">Explore the fictional sample<\/button>/,
+    );
+    expect(text).toContain("Just looking?");
+    expect(text).toContain("Its team is fictional, and every gap on it says so.");
+  });
+
+  it("links the privacy notice and the terms on the first step, and names Business settings", () => {
+    const { html, text } = firstRender("");
+    expect(html).toContain('<a href="/privacy">Privacy</a>');
+    expect(html).toContain('<a href="/terms">Terms</a>');
+    expect(text).toContain("Change this later in Business settings, from the business menu.");
+    expect(text).not.toContain("Business profile");
+  });
+
+  it("opens a named business on the team grid, not the question list", () => {
+    const { text } = firstRender("Ruiz Dental");
+    expect(text).toContain("Your people and their money duties");
+    expect(text).not.toContain("Question 1 of 4");
+  });
+
+  it("still offers the setup questions when opened there", () => {
+    const { html, text } = firstRender("Ruiz Dental", "dental", "questions");
+    expect(text).toContain("Question 1 of 4");
+    expect(text).toContain("What is your role?");
+    expect(html).toContain('aria-labelledby="industry-onboarding-title"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html.match(/type="radio"/g)).toHaveLength(3);
+    expect(text).not.toContain("Your people and their money duties");
+  });
+
+  it("opens the money step after the setup questions", () => {
+    const { html, text } = firstRender("Ruiz Dental", "dental", "money");
+    expect(text).toContain("How money moves here");
+    expect(text).toContain("How money moves");
+    expect(text).toContain("What is already in place?");
+    expect(text).toContain("Next: your team");
+    expect(text).toContain("Skip these questions");
+    expect(html.match(/role="radiogroup"/g)).toHaveLength(11);
+    expect(text).not.toContain("Your people and their money duties");
+  });
+
+  it("uses board-member wording for nonprofit setup", () => {
+    const { text } = firstRender("Community Co", "nonprofit", "money");
+    expect(text).toContain("Does a board member open and read the bank statement each month?");
+  });
+
+  it("opens a named business on its team grid with job-title wording and plural counts", () => {
+    const { html, text } = firstRender("Ruiz Dental", "dental", "team");
+    expect(text).toContain("Your people and their money duties");
+    expect(text).toContain("0 people named · 1 row to review");
+    expect(text).not.toContain("reload recovery");
+    expect(html).toMatch(/<th[^>]*>Job title<\/th>/);
+    expect(text).toContain("Choose a job title");
+    expect(html).not.toMatch(/<option value="owner">/);
+    expect(text).toContain("Add 1 person");
+    expect(html).toContain('role="tooltip"');
+    expect(html).toContain("max-w-3xl lg:max-w-7xl");
+    expect(html.indexOf("<table")).toBeLessThan(html.indexOf("Fill the table faster"));
+  });
+
+  it("says under the header that the business is kept only once setup finishes", () => {
+    const { html, text } = firstRender("Ruiz Dental", "dental", "team");
+    const notice =
+      "Precog saves this business when you press “Show me my gaps”. Until then, your answers stay in this browser tab, even after a reload.";
+    expect(text).toContain(notice);
+    expect(html.indexOf("Precog saves this business")).toBeLessThan(html.indexOf("<table"));
+    expect(text).not.toContain("Your progress stays in this tab until you finish.");
+    expect(text).not.toContain("it stays only in this browser tab");
+  });
+
+  it("ticks the owner row's usual duties from the start, each marked as from the job title", () => {
+    for (const industry of ["dental", "nonprofit"]) {
+      const { html, text } = firstRender("Ruiz Dental", industry, "team");
+      const dutyBoxes = html.match(/<input type="checkbox"[^>]*aria-label="[^"]*: [^"]*"[^>]*>/g);
+      expect(dutyBoxes?.length).toBeGreaterThan(5);
+      const ticked = dutyBoxes?.filter((box) => /\schecked/.test(box)) ?? [];
+      expect(ticked.length).toBeGreaterThan(0);
+      // Every tick the title set says so, and says what to do about a wrong one.
+      for (const box of ticked) {
+        expect(box).toContain("data-from-title");
+        expect(box).toContain('title="Ticked from the job title. Untick it if wrong."');
+      }
+      expect(text).toMatch(/\d+ duties ticked from the job title\. Untick any that are wrong\./);
+      expect(text).not.toContain("keep or remove each below the table");
+      // Nothing holds Finish back: the button carries no waiting note.
+      expect(html).not.toContain("finish-waits");
+      expect(text).not.toContain("works once you keep or remove");
+    }
+  });
+
+  it("makes the duty catalog discoverable and explains the one-person completion choice", () => {
+    const { html, text } = firstRender("Ruiz Dental", "dental", "team");
+    expect(html).toMatch(
+      /<summary class="[^"]*border[^"]*">Review suggested duties for \d+ job titles<\/summary>/,
+    );
+    expect(text).toContain(
+      "These duties are starting points to review, not proof of anyone’s actual access.",
+    );
+    expect(text).toContain(
+      "You can continue with one person. Precog will assess that one-person setup; add the rest of your team later under Team for a fuller team assessment.",
+    );
+    expect(html).toContain("<button");
+    expect(text).toContain("Show me my gaps");
+  });
+});
+
+describe("large-roster scope attestation", () => {
+  it("uses a keyboard-native radio group and announces scoped, incomplete coverage", () => {
+    const html = renderToStaticMarkup(
+      <MappingScopeAttestation
+        scope="one_team"
+        unresolvedRows={60}
+        scopedAssessment
+        onChoose={() => {}}
+      />,
+    );
+    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(html).toContain("<fieldset");
+    expect(html.match(/type="radio"/g)).toHaveLength(3);
+    expect(html).toContain('name="mapping_scope"');
+    expect(html).toContain('role="status"');
+    expect(text).toContain("60 valid roster rows are not in the review grid");
+    expect(text).toContain("Precog gives no control credit for unknown or unresolved people");
+    expect(text).toContain(
+      "Precog maps only this scope. It does not fully assess people outside it.",
+    );
+  });
+});

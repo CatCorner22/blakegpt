@@ -1,0 +1,401 @@
+import { describe, expect, it } from "vitest";
+import {
+  adoptOwnTeam,
+  atBusinessLimit,
+  businessLimitMessage,
+  isSampleBusiness,
+  printedBusinessName,
+  needsOwnName,
+  newBusinessProfile,
+  ownBusinessName,
+  ownSetupProfile,
+  processesToEdit,
+  replacesSampleTeam,
+  sampleSetupProfile,
+  teamSource,
+  unfinishedBusinessToKeep,
+} from "./business-lifecycle";
+import { getIndustryTemplate } from "./templates";
+import { resolveTemplate } from "./active-template";
+import { detectSodConflicts, sodDetectionOptions } from "./sod/detect";
+import { memoryStorage } from "@/test/memory-storage";
+import { ownBusinessProfile } from "./onboarding/own-team";
+import { UNANSWERED, type SetupAnswers } from "./onboarding/setup-answers";
+import {
+  defaultProfile,
+  loadPortfolio,
+  normalizeProfile,
+  parseStoredProfile,
+  savePortfolioEntry,
+  type PracticeProfile,
+} from "./practice-profile";
+import type { Person } from "./types";
+
+const ownTeam: Person[] = [
+  { id: "own-1", name: "Al Owner", role: "Owner", active: true, entitlements: ["approve_payroll"] },
+  {
+    id: "own-2",
+    name: "Bea Books",
+    role: "Bookkeeper",
+    active: true,
+    entitlements: ["bank_reconcile"],
+  },
+];
+
+describe("where a business's people came from", () => {
+  it("is the sample until the owner enters a team, even one they then empty", () => {
+    expect(teamSource({})).toBe("sample");
+    expect(teamSource({ customPeople: null })).toBe("sample");
+    expect(teamSource({ customPeople: [] })).toBe("own");
+    expect(teamSource({ customPeople: ownTeam })).toBe("own");
+    expect(teamSource({ customPeople: getIndustryTemplate("dental").people })).toBe("own");
+  });
+});
+
+describe("the first edit to an owner's sample process map", () => {
+  it("carries no sample owner ids into the owner's saved map", () => {
+    const own = ownBusinessProfile(defaultProfile("general"), {
+      practiceName: "Own Co",
+      people: ownTeam,
+    });
+    const ownIds = new Set(ownTeam.map((p) => p.id));
+    const seeded = processesToEdit(own);
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const process of seeded) {
+      for (const id of process.ownerPersonIds ?? [])
+        expect(ownIds.has(id), process.name).toBe(true);
+    }
+  });
+
+  it("keeps the sample's owners while the sample team is in use", () => {
+    const sample = defaultProfile("general");
+    expect(processesToEdit(sample).some((p) => (p.ownerPersonIds ?? []).length > 0)).toBe(true);
+  });
+
+  it("starts from the owner's own map once there is one", () => {
+    const own = ownBusinessProfile(defaultProfile("general"), {
+      practiceName: "Own Co",
+      people: ownTeam,
+    });
+    const custom = [{ ...processesToEdit(own)[0], name: "Warranty claims" }];
+    expect(processesToEdit({ ...own, customProcesses: custom })).toBe(custom);
+  });
+});
+
+const sampleNames = (p: PracticeProfile) => {
+  const sample = new Set(getIndustryTemplate(p.industry).people.map((x) => x.name));
+  return (p.customPeople ?? []).filter((x) => sample.has(x.name)).map((x) => x.name);
+};
+
+describe("two tabs that both finish setup", () => {
+  it("give each finished business its own id, so neither replaces the other", () => {
+    const storage = memoryStorage();
+    // Both tabs opened on a first visit and read the same unfinished business.
+    const unfinished = { ...defaultProfile(), onboardingComplete: false };
+    const tabC = parseStoredProfile(JSON.stringify(unfinished));
+    const tabD = parseStoredProfile(JSON.stringify(unfinished));
+    expect(tabC.businessId).toBe(tabD.businessId);
+
+    const c = ownSetupProfile({
+      industry: "general",
+      practiceName: "Tab C Business",
+      people: [{ id: "own-1", name: "Carla One", role: "Bookkeeper", active: true }],
+    });
+    const d = ownSetupProfile({
+      industry: "retail",
+      practiceName: "Tab D Business",
+      people: [{ id: "own-1", name: "Dora One", role: "Bookkeeper", active: true }],
+    });
+    expect(c.businessId).not.toBe(d.businessId);
+    expect(c.businessId).not.toBe(tabC.businessId);
+    savePortfolioEntry(c, storage);
+    savePortfolioEntry(d, storage);
+    const names = Object.values(loadPortfolio(storage)).map((p) => p.practiceName);
+    expect(names.sort()).toEqual(["Tab C Business", "Tab D Business"]);
+  });
+
+  it("loading the sample in one tab does not take the other tab's business id either", () => {
+    const unfinished = { ...defaultProfile(), onboardingComplete: false };
+    const sample = sampleSetupProfile("general", unfinished);
+    expect(sample.businessId).not.toBe(unfinished.businessId);
+    expect(sample.onboardingComplete).toBe(true);
+  });
+});
+
+describe("the own-business knowledge register at setup", () => {
+  it("starts with the industry's sample entries and no people assigned", () => {
+    const profile = ownSetupProfile({
+      industry: "general",
+      practiceName: "Own Co",
+      people: ownTeam,
+    });
+    const template = resolveTemplate(profile);
+    expect(template.knowledge.map((item) => item.id)).toEqual(
+      getIndustryTemplate("general").knowledge.map((item) => item.id),
+    );
+    expect(template.relations).toEqual([]);
+  });
+});
+
+describe("Add a business from the business menu", () => {
+  it("opens setup under the owner's name instead of the sample's people", () => {
+    const added = newBusinessProfile("general", "  Own Plumbing LLC ");
+    expect(added.onboardingComplete).toBe(false);
+    expect(added.practiceName).toBe("Own Plumbing LLC");
+    expect(added.industry).toBe("general");
+    expect(ownBusinessName(added)).toBe("Own Plumbing LLC");
+    // Not listed as a business until setup is finished.
+    const storage = memoryStorage();
+    savePortfolioEntry(added, storage);
+    expect(loadPortfolio(storage)).toEqual({});
+  });
+
+  it("finishes as the owner's team, with no sample people and no sample supplier waiver", () => {
+    const own = ownSetupProfile({
+      industry: "general",
+      practiceName: "Own Plumbing LLC",
+      people: ownTeam,
+    });
+    expect(own.practiceName).toBe("Own Plumbing LLC");
+    expect(sampleNames(own)).toEqual([]);
+    expect(own.dualRelease.exceptions.filter((e) => e.sample)).toEqual([]);
+    expect(own.customRelations).toEqual([]);
+  });
+
+  it("keeps the sample's name when the owner leaves the name blank", () => {
+    const added = newBusinessProfile("retail", "   ");
+    expect(added.practiceName).toBe(getIndustryTemplate("retail").businessName);
+    expect(ownBusinessName(added)).toBe("");
+  });
+
+  it("derives the own profile from setup answers and preserves outside reconciliation", () => {
+    const answers: SetupAnswers = {
+      ...UNANSWERED,
+      cashOrChecks: "no",
+      bankRec: "outside",
+      ownerReadsStatement: "yes",
+      bankSecondApproval: "yes",
+      dailyTakings: "5k-20k",
+    };
+    const people: Person[] = [
+      {
+        id: "own-cash",
+        name: "Casey Owner",
+        role: "Owner",
+        active: true,
+        entitlements: ["collect_cash", "post_payments"],
+      },
+      {
+        id: "own-books",
+        name: "Alex Books",
+        role: "Bookkeeper",
+        active: true,
+        entitlements: ["release_payment", "bank_reconcile"],
+      },
+    ];
+    const profile = ownBusinessProfile(defaultProfile("general"), {
+      practiceName: "Own Co",
+      people,
+      answers,
+    });
+    const template = resolveTemplate(profile);
+    const report = detectSodConflicts(
+      template,
+      profile.staff,
+      sodDetectionOptions(template, profile.dualRelease),
+    );
+
+    expect(report.conflicts.some((conflict) => conflict.ruleId === "rule-collect-post")).toBe(
+      false,
+    );
+    expect(profile.customPeople?.[0].entitlements).not.toContain("collect_cash");
+    expect(profile.customPeople?.[1].entitlements).not.toContain("bank_reconcile");
+    expect(profile.staff).toMatchObject({
+      independentBankRec: true,
+      bankRecSource: "outside",
+      dualControlPayments: true,
+    });
+    expect(profile.dualRelease.enabled).toBe(true);
+    expect(profile.riskVariables).toMatchObject({
+      dailyCashExposure: 10000,
+      hasDualControl: true,
+      hasIndependentBankRec: true,
+    });
+
+    // The answers credit the cash control without logging a decision.
+    expect(profile.decisions).toEqual([]);
+    const cashControl = template.controls.find((control) => control.id === "c-sod-cash");
+    expect(cashControl?.compensatingControls).toEqual(
+      expect.arrayContaining([
+        "The owner opens and reads the bank statement each month (answered at setup).",
+        "An outside bookkeeper or CPA reconciles the bank account each month (answered at setup).",
+      ]),
+    );
+
+    const restored = normalizeProfile(JSON.parse(JSON.stringify(profile)));
+    expect(restored.staff).toMatchObject({ independentBankRec: true, bankRecSource: "outside" });
+    expect(restored.setupAnswers).toEqual(answers);
+    expect(restored.customPeople?.[1].entitlements).not.toContain("bank_reconcile");
+  });
+
+  it("keeps an unanswered setup identical to today's profile derivation", () => {
+    const base = defaultProfile("general");
+    const input = { practiceName: "Own Co", people: ownTeam };
+    const withoutAnswers = ownBusinessProfile(base, input);
+    const withUnanswered = ownBusinessProfile(base, { ...input, answers: UNANSWERED });
+    const { setupAnswers: _setupAnswers, ...profileWithoutAnswers } = withUnanswered;
+    expect(profileWithoutAnswers).toEqual(withoutAnswers);
+  });
+
+  it("stops at the account's business limit", () => {
+    expect(atBusinessLimit(49)).toBe(false);
+    expect(atBusinessLimit(50)).toBe(true);
+  });
+
+  it("tells the owner what refused one more business: the ceiling, or the plan", () => {
+    expect(businessLimitMessage()).toBe(
+      "Your account already holds 50 businesses, the most it can keep. Delete one you no longer need, then try again.",
+    );
+    expect(businessLimitMessage(10)).toContain("already holds 10 businesses");
+    expect(businessLimitMessage({ plan: "free", limit: 1 })).toBe(
+      "Precog keeps one business per account for free. The Firm plan holds 5, 20 or 50 client businesses by tier; start it on the Firm page.",
+    );
+    expect(businessLimitMessage({ plan: "assessment", limit: 1 })).toBe(
+      "The Assessment covers one client business. The Firm plan holds 5, 20 or 50 by tier; start it on the Firm page.",
+    );
+    expect(businessLimitMessage({ plan: "firm", limit: 50 })).toBe(
+      "Your firm already holds 50 client businesses, the most it can keep. Delete one you no longer need, then try again.",
+    );
+  });
+
+  it("names the firm's tier and how to move up, for the owner and for a member", () => {
+    expect(businessLimitMessage({ plan: "firm", limit: 5, tier: 1 })).toBe(
+      "Your firm's Starter tier holds 5 client businesses. Move up a tier in Manage billing on the Firm page, or delete a client you no longer need.",
+    );
+    expect(businessLimitMessage({ plan: "firm", limit: 20, tier: 2, asMember: true })).toBe(
+      "Your firm's Practice tier holds 20 client businesses. Ask the firm owner to move up a tier, or to delete a client the firm no longer needs.",
+    );
+    // The top tier and an unknown tier have nowhere to move up to.
+    for (const tier of [3, null] as const) {
+      expect(businessLimitMessage({ plan: "firm", limit: 50, tier })).toBe(
+        "Your firm already holds 50 client businesses, the most it can keep. Delete one you no longer need, then try again.",
+      );
+    }
+  });
+});
+
+describe("the unfinished business a setup replaces", () => {
+  it("goes away when it is only the sample behind the dialog", () => {
+    const unfinished = { ...newBusinessProfile("general", "Own Plumbing LLC") };
+    expect(unfinishedBusinessToKeep(unfinished)).toBeNull();
+  });
+
+  it("is kept as a business of its own when an older version saved work under it", () => {
+    const legacy: PracticeProfile = {
+      ...defaultProfile("general"),
+      onboardingComplete: false,
+      customPeople: ownTeam,
+    };
+    expect(unfinishedBusinessToKeep(legacy)?.onboardingComplete).toBe(true);
+    expect(unfinishedBusinessToKeep({ ...legacy, onboardingComplete: true })).toBeNull();
+  });
+});
+
+describe("the owner's roster pasted into the sample business", () => {
+  const roster: Person[] = [
+    {
+      id: "p-ana-ruiz",
+      name: "Ana Ruiz",
+      role: "Office Manager",
+      active: true,
+      entitlements: ["initiate_ach", "approve_vendor"],
+    },
+    {
+      id: "p-ben-ochoa",
+      name: "Ben Ochoa",
+      role: "Bookkeeper",
+      active: true,
+      entitlements: ["release_payment", "bank_reconcile"],
+    },
+    { id: "p-cal-diaz", name: "Cal Diaz", role: "Cashier", active: true },
+  ];
+
+  it("counts as replacing the sample team, while editing the sample's people does not", () => {
+    const sample = defaultProfile("general");
+    expect(replacesSampleTeam(sample, roster)).toBe(true);
+    const edited = getIndustryTemplate("general").people.map((p, i) =>
+      i === 0 ? { ...p, name: "Renamed" } : p,
+    );
+    expect(replacesSampleTeam(sample, edited)).toBe(false);
+    expect(replacesSampleTeam({ ...sample, customPeople: roster }, roster)).toBe(false);
+  });
+
+  it("drops the sample's supplier waiver and name, and seats approvers from the owner's people", () => {
+    const sample = defaultProfile("general");
+    expect(sample.dualRelease.exceptions.some((e) => e.sample && e.enabled)).toBe(true);
+    const own = adoptOwnTeam(sample, roster);
+    expect(own.practiceName).toBe("My business");
+    expect(needsOwnName(own)).toBe(true);
+    expect(own.dualRelease.exceptions.filter((e) => e.sample)).toEqual([]);
+    expect(own.customRelations).toEqual([]);
+    const ach = own.dualRelease.rules.find((r) => r.channel === "ach");
+    const roles = new Set(roster.map((p) => p.role));
+    for (const role of [...(ach?.firstApproverRoles ?? []), ...(ach?.secondApproverRoles ?? [])]) {
+      expect(roles.has(role), role).toBe(true);
+    }
+  });
+
+  it("keeps a name the owner already gave the business, and the owner's own exceptions", () => {
+    const sample = defaultProfile("general");
+    const renamed: PracticeProfile = {
+      ...sample,
+      practiceName: "Main Street Plumbing",
+      dualRelease: {
+        ...sample.dualRelease,
+        exceptions: [
+          ...sample.dualRelease.exceptions,
+          {
+            id: "ex_owner",
+            label: "Owner's own raise",
+            channels: ["ach"],
+            action: "raise_threshold",
+            thresholdUsd: 900,
+            enabled: true,
+            reason: "Entered by the owner",
+            createdAt: "2026-09-01",
+          },
+        ],
+      },
+    };
+    const own = adoptOwnTeam(renamed, roster);
+    expect(own.practiceName).toBe("Main Street Plumbing");
+    expect(needsOwnName(own)).toBe(false);
+    expect(own.dualRelease.exceptions.map((e) => e.id)).toEqual([
+      "ex-force-new-vendor-pay",
+      "ex_owner",
+    ]);
+  });
+});
+
+describe("printing /report or /threat", () => {
+  it("labels a visit with no business set up as the sample, under the sample's name", () => {
+    const firstVisit = { ...defaultProfile(), onboardingComplete: false };
+    expect(isSampleBusiness(firstVisit)).toBe(true);
+    expect(printedBusinessName(firstVisit)).toBe("Ridgeview Family Dental");
+    const added = newBusinessProfile("general", "Own Plumbing LLC");
+    expect(isSampleBusiness(added)).toBe(true);
+    expect(printedBusinessName(added)).toBe(getIndustryTemplate("general").businessName);
+  });
+
+  it("labels the loaded sample, even renamed, as the sample", () => {
+    const renamed = { ...defaultProfile("retail"), practiceName: "Harbor Lane (mine?)" };
+    expect(isSampleBusiness(renamed)).toBe(true);
+    expect(printedBusinessName(renamed)).toBe("Harbor Lane (mine?)");
+  });
+
+  it("prints the owner's business under its own name with no sample label", () => {
+    const own = ownSetupProfile({ industry: "general", practiceName: "Own Co", people: ownTeam });
+    expect(isSampleBusiness(own)).toBe(false);
+    expect(printedBusinessName(own)).toBe("Own Co");
+  });
+});

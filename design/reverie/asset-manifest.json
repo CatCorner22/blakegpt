@@ -1,0 +1,115 @@
+{
+  "character": "Reverie",
+  "images": [
+    {
+      "file": "logos/reverie-focus-archer-lockup.png",
+      "width": 2172,
+      "height": 724,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 797475,
+      "sha256": "6a66e627f9afee67d47386ea1940a96d47ee94cec4ad115e29cd157dbb22f91f",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "logos/reverie-horizon-next-steps-lockup.png",
+      "width": 2172,
+      "height": 724,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 686925,
+      "sha256": "dcea76400e406a6188f5d2631ee5d0811dbf1eca72be02c4eb5f861561c60986",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "logos/reverie-target-prepare-lockup.png",
+      "width": 2172,
+      "height": 724,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 769413,
+      "sha256": "a617679894524b7ad6ebe87282f08149d8c464541e50276b0801da55c3915a53",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "logos/reverie-telescope-explorer-lockup.png",
+      "width": 2172,
+      "height": 724,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 834557,
+      "sha256": "ccd2bbb2932bea055c6b70aee480635388b51e72efc703a3d6fea6aea3570e95",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "logos/reverie-vision-painter-lockup.png",
+      "width": 2172,
+      "height": 724,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 888267,
+      "sha256": "ffa915d52cf278a2d885b85f08d38d191dcf5e063904e267248d9720e8956995",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "stickers/reverie-friendly-face.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 1067034,
+      "sha256": "c9787561ed400f0b24ebbfd52f4483ab4869b8868551a7910bb53996439c3b89",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "stickers/reverie-presenting-parcel.png",
+      "width": 1312,
+      "height": 1199,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 772334,
+      "sha256": "378cf55ab0c949b4b6e6eb3429aaf0f209b6c3e54bc03905ab9e9ddbcee36f76",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "stickers/reverie-reading-book.png",
+      "width": 1312,
+      "height": 1199,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 839371,
+      "sha256": "dd05f27c169cfc1c61f4bf62fe3db8b446b9d16f1acc80c9604269e6fa04fa55",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "stickers/reverie-red-rocket.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 891601,
+      "sha256": "3bc765378182f4899bd5acfd80cc402b9282c20222ef6020d7e1593c5095fc2c",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "stickers/reverie-walking-with-kite.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparentPixels": true,
+      "bytes": 812611,
+      "sha256": "7c57fa31fdab3c657cdb0eab6674842a764983dda95e771a7e9061e0186fdcfa",
+      "status": "unaltered original reference copy"
+    },
+    {
+      "file": "reference/reverie-approved-aim-and-imagine-board.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparentPixels": false,
+      "bytes": 1664821,
+      "sha256": "a4f436dd8816f240160c317c47ffeb0ba6ac90d418251ef595d39d01f718ce4c",
+      "status": "unaltered original reference copy"
+    }
+  ]
+}

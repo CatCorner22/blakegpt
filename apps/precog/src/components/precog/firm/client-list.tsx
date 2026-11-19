@@ -1,0 +1,508 @@
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { ArrowDown, ArrowUp, Plus, RotateCcw } from "lucide-react";
+import { localDateKey } from "@/lib/precog/dates";
+import { restoreDeletedClient, setClientOwnerEmail } from "@/lib/precog/firm/server";
+import type { ClientEngagementRow } from "@/lib/precog/firm/store";
+import type { DeletedBusinessRow } from "@/lib/precog/business-store";
+import { fieldCls } from "@/components/ui/field-classes";
+import { INDUSTRIES, type IndustryId } from "@/lib/precog/industry";
+import { cn } from "@/lib/utils";
+import { addClientFromForm } from "./open-client-report";
+import {
+  clientColumns,
+  clientStatusText,
+  clientTotals,
+  clientUrgency,
+  DEFAULT_CLIENT_SORT,
+  exceptionsText,
+  lastMonthStanding,
+  lastMonthText,
+  skippedText,
+  sortClients,
+  thisMonthText,
+  type ClientSort,
+} from "./client-table-csv";
+
+/**
+ * Every client the firm holds as a sortable table: the engagement's state,
+ * the last monthly result, last month's and this month's checks Done (last
+ * month marked Overdue after its due day while a check has no result), the
+ * exceptions and skips, open
+ * duty conflicts and the versions awaiting review, the owner's address for
+ * reminders, and the businesses deleted within the grace period. The
+ * clients who need the firm sort to the top (last month overdue, then
+ * exceptions, then nothing recorded this month, then versions awaiting
+ * review) until a column is chosen. The client's name opens it as Open
+ * does; each row's actions sit on a line under the name, so they stay on
+ * screen on a laptop. The versions awaiting review, in the summary and in
+ * the column, open the version. With `onAddClient`, Add client starts a
+ * new business from here.
+ */
+export function ClientList({
+  clients,
+  deleted,
+  activeId,
+  onOpen,
+  onOpenReport,
+  onRestored,
+  onClientsChange,
+  onExport,
+  canRestore,
+  onAddClient,
+  today = localDateKey(new Date()),
+}: {
+  clients: ClientEngagementRow[];
+  deleted: DeletedBusinessRow[];
+  activeId: string;
+  /** Only the firm owner (or a solo account) restores a deleted client; others see no list. */
+  canRestore: boolean;
+  /** Switch to the client and open its Monthly review. */
+  onOpen: (id: string) => void;
+  onOpenReport: (id: string) => void;
+  onRestored: (id: string) => void;
+  onClientsChange: (clients: ClientEngagementRow[]) => void;
+  /** Download the table as CSV, in the order it is sorted. */
+  onExport: (clients: ClientEngagementRow[]) => void;
+  /**
+   * Start a new business with this name and line of business and open its
+   * setup; resolves false when Precog refused (the page says why).
+   */
+  onAddClient?: (name: string, industry: IndustryId) => Promise<boolean>;
+  /** YYYY-MM-DD; the viewer's day unless a test fixes it. */
+  today?: string;
+}) {
+  const [sort, setSort] = useState<ClientSort>(DEFAULT_CLIENT_SORT);
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  async function saveEmail(client: ClientEngagementRow) {
+    try {
+      const address = draft.trim().toLowerCase() || null;
+      const { confirmation } = await setClientOwnerEmail({
+        data: { businessId: client.id, email: draft },
+      });
+      onClientsChange(
+        clients.map((c) =>
+          c.id === client.id
+            ? {
+                ...c,
+                ownerEmail: address,
+                ownerEmailStatus: !address
+                  ? null
+                  : confirmation === "stopped"
+                    ? "stopped"
+                    : confirmation === "none"
+                      ? c.ownerEmailStatus
+                      : "waiting",
+              }
+            : c,
+        ),
+      );
+      setEditing(null);
+      toast.success(
+        !address
+          ? "Precog removed the owner address."
+          : confirmation === "sent"
+            ? `Precog emailed ${address} a link to confirm. Reminders start once the owner opens it.`
+            : confirmation === "not-sent"
+              ? "Precog saved the owner address but could not email the confirmation link, so no reminders go out yet. Save the address again to retry."
+              : confirmation === "stopped"
+                ? `Precog saved the owner address. The owner stopped reminders to ${address}, so Precog sends nothing to it.`
+                : "Precog saved the owner address.",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Precog did not save the address.");
+    }
+  }
+
+  async function restore(id: string) {
+    try {
+      await restoreDeletedClient({ data: { businessId: id } });
+      onRestored(id);
+      toast.success("Business restored.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Precog did not restore the business.");
+    }
+  }
+
+  const sorted = useMemo(() => sortClients(clients, sort, today), [clients, sort, today]);
+  const totals = useMemo(() => clientTotals(clients, today), [clients, today]);
+  const urgency = useMemo(() => clientUrgency(clients, today), [clients, today]);
+  const columns = useMemo(() => clientColumns(today), [today]);
+  // The summary's link opens the version of the most urgent client with one waiting.
+  const firstWaiting = useMemo(
+    () => sortClients(clients, DEFAULT_CLIENT_SORT, today).find((c) => c.awaitingVersionId),
+    [clients, today],
+  );
+
+  return (
+    <section className="rounded-xl border border-border bg-surface p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold">Clients</h2>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onAddClient && !adding && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+              onClick={() => setAdding(true)}
+            >
+              <Plus className="size-3.5" aria-hidden />
+              Add client
+            </button>
+          )}
+          {clients.length > 0 && sort.key !== "urgency" && (
+            <button
+              type="button"
+              className="rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+              onClick={() => setSort(DEFAULT_CLIENT_SORT)}
+            >
+              Most urgent first
+            </button>
+          )}
+          {clients.length > 0 && (
+            <button
+              type="button"
+              className="rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+              onClick={() => onExport(sorted)}
+            >
+              Export clients (CSV)
+            </button>
+          )}
+        </div>
+      </div>
+      {onAddClient && adding && (
+        <AddClientForm onAdd={onAddClient} onCancel={() => setAdding(false)} />
+      )}
+      {clients.length > 0 && (
+        <>
+          <p className="mt-1 text-sm font-medium">
+            {urgency.before}
+            {urgency.awaiting &&
+              (firstWaiting ? (
+                <button
+                  type="button"
+                  className={linkCls}
+                  aria-label={`Open the version awaiting review for ${firstWaiting.name}`}
+                  onClick={() => onOpenReport(firstWaiting.id)}
+                >
+                  {urgency.awaiting}
+                </button>
+              ) : (
+                urgency.awaiting
+              ))}
+            {urgency.after}
+          </p>
+          <p className="mt-0.5 text-xs text-muted">{totals}</p>
+        </>
+      )}
+      <p className="mt-1 text-sm text-muted">
+        {clients.length > 0 &&
+          "The clients who need you come first: last month overdue, then exceptions, then nothing recorded once this month's checks open on the 5th, then versions awaiting review. "}
+        Last review is the newest monthly result Precog holds for that client. The two month columns
+        count Done checks only; Exceptions and Skipped count the others. Last month stays open until
+        its due day, the 10th; after it, its column shows Overdue while a check has no result. An
+        owner address receives the reminders about their own business once its owner confirms it
+        from an email; Precog sends nothing else to it.
+        {clients.length > 0 &&
+          " Sort by any column; Export clients (CSV) downloads these figures, one column each (done and total apart, last month and this month apart), plus the client id and the owner address's state."}
+      </p>
+      {clients.length === 0 ? (
+        <p className="mt-3 text-sm text-muted">
+          No saved clients yet. Save a business to list it here.
+        </p>
+      ) : (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[48rem] text-left text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs text-muted">
+                {columns.map((col) => (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    title={col.title}
+                    className={cn(
+                      "py-1.5 pr-3 align-bottom font-medium",
+                      col.key === "client" ? "min-w-[16rem]" : "max-w-[7.5rem]",
+                    )}
+                    aria-sort={
+                      sort.key === col.key
+                        ? sort.dir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex items-end gap-1 text-left hover:text-fg"
+                      onClick={() =>
+                        setSort((cur) =>
+                          cur.key === col.key
+                            ? { key: col.key, dir: cur.dir === "asc" ? "desc" : "asc" }
+                            : { key: col.key, dir: "asc" },
+                        )
+                      }
+                    >
+                      {col.label}
+                      {sort.key === col.key &&
+                        (sort.dir === "asc" ? (
+                          <ArrowUp className="size-3" aria-hidden />
+                        ) : (
+                          <ArrowDown className="size-3" aria-hidden />
+                        ))}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {sorted.map((client) => (
+                <tr key={`${client.ownerUserId}/${client.id}`} className="align-top">
+                  <td className="py-2 pr-3">
+                    <button
+                      type="button"
+                      className={cn(linkCls, "text-left font-medium")}
+                      title="Open the Monthly review"
+                      onClick={() => onOpen(client.id)}
+                    >
+                      {client.name}
+                    </button>
+                    {client.id === activeId && (
+                      <span className="ml-2 text-xs text-primary">open</span>
+                    )}
+                    {/* A row someone else holds: its owner shared it with the firm, or
+                        another member of the firm saved it. The viewer's own row has no tag. */}
+                    {client.shared && (
+                      <span className="ml-2 text-xs text-muted">
+                        {client.granted ? "Client's own" : "another firm member's"}
+                      </span>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {editing === client.id ? (
+                        <form
+                          className="flex items-center gap-1.5"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void saveEmail(client);
+                          }}
+                        >
+                          <input
+                            className={cn(fieldCls, "py-1 text-xs")}
+                            type="email"
+                            autoFocus
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            placeholder="owner@business.com"
+                            aria-label={`Owner email for ${client.name}`}
+                          />
+                          <button
+                            type="submit"
+                            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md px-2 py-1 text-xs text-muted hover:text-fg"
+                            onClick={() => setEditing(null)}
+                          >
+                            Cancel
+                          </button>
+                        </form>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+                          aria-label={
+                            client.ownerEmail
+                              ? `Change the owner email for ${client.name} (${client.ownerEmail})`
+                              : `Add an owner email for ${client.name}`
+                          }
+                          onClick={() => {
+                            setEditing(client.id);
+                            setDraft(client.ownerEmail ?? "");
+                          }}
+                        >
+                          {client.ownerEmail
+                            ? `Owner: ${client.ownerEmail}${ownerStatusText(client.ownerEmailStatus)}`
+                            : "Add owner email"}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+                        aria-label={`Open the Monthly review for ${client.name}`}
+                        onClick={() => onOpen(client.id)}
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+                        aria-label={`Open the report for ${client.name}`}
+                        onClick={() => onOpenReport(client.id)}
+                      >
+                        Open report
+                      </button>
+                    </div>
+                  </td>
+                  <td className="py-2 pr-3 text-xs">{clientStatusText(client)}</td>
+                  <td className="py-2 pr-3 text-xs whitespace-nowrap">
+                    {client.lastReviewAt ? client.lastReviewAt.slice(0, 10) : "None"}
+                  </td>
+                  <td className="py-2 pr-3 text-xs">
+                    {lastMonthText(client, today)}
+                    {lastMonthStanding(client, today).overdue && (
+                      <span className="ml-1.5 rounded border border-danger/40 px-1 py-0.5 font-medium text-danger">
+                        Overdue
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3 text-xs">{thisMonthText(client, today)}</td>
+                  <td className="py-2 pr-3 text-xs">{exceptionsText(client, today)}</td>
+                  <td className="py-2 pr-3 text-xs">{skippedText(client, today)}</td>
+                  <td className="py-2 pr-3 text-xs">
+                    {client.openFindings === null ? "Not counted yet" : client.openFindings}
+                  </td>
+                  <td className="py-2 pr-3 text-xs">
+                    {client.awaitingReview === 0 ? (
+                      "None"
+                    ) : client.awaitingVersionId ? (
+                      <button
+                        type="button"
+                        className={linkCls}
+                        aria-label={`Open the version of ${client.name} awaiting review`}
+                        onClick={() => onOpenReport(client.id)}
+                      >
+                        {client.awaitingReview}
+                      </button>
+                    ) : (
+                      client.awaitingReview
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {canRestore && deleted.length > 0 && (
+        <div className="mt-4 border-t border-border pt-3">
+          <h3 className="text-sm font-medium">Recently deleted</h3>
+          <ul className="mt-2 divide-y divide-border">
+            {deleted.map((d) => (
+              <li
+                key={d.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+              >
+                <div>
+                  <p>{d.name}</p>
+                  <p className="text-xs text-muted">
+                    Deleted {d.deletedAt.slice(0, 10)} · removed for good on{" "}
+                    {d.purgeOn.slice(0, 10)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-elevated"
+                  aria-label={`Restore ${d.name}`}
+                  onClick={() => void restore(d.id)}
+                >
+                  <RotateCcw className="size-3.5" aria-hidden /> Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The name and line of business of a new client. Adding it opens its setup;
+ * Precog lists it once that setup is finished (an unfinished business is the
+ * sample behind the setup dialog, so it is not kept).
+ */
+export function AddClientForm({
+  onAdd,
+  onCancel,
+}: {
+  onAdd: (name: string, industry: IndustryId) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [industry, setIndustry] = useState<IndustryId>("general");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="mt-3 rounded-lg border border-border p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!name.trim() || busy) return;
+        void addClientFromForm(onAdd, name.trim(), industry, setBusy, onCancel);
+      }}
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[14rem] flex-1 text-xs text-muted">
+          Client name
+          <input
+            className={cn(fieldCls, "mt-1 w-full text-sm")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="New client name"
+            autoFocus
+            required
+          />
+        </label>
+        <label className="text-xs text-muted">
+          Line of business
+          <select
+            className={cn(fieldCls, "mt-1 block text-sm")}
+            aria-label="Line of business"
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value as IndustryId)}
+          >
+            {INDUSTRIES.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-md border border-border px-3 py-2 text-sm hover:bg-elevated disabled:opacity-60"
+        >
+          Add client and open setup
+        </button>
+        <button
+          type="button"
+          className="rounded-md px-3 py-2 text-sm text-muted hover:text-fg"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-muted">
+        Setup opens next. Precog lists the client here once you finish its setup; a client you leave
+        in the middle of setup is not kept.
+      </p>
+    </form>
+  );
+}
+
+/** A button that reads as a link: the client's name and the versions awaiting review. */
+const linkCls = "text-primary underline underline-offset-4 hover:text-fg";
+
+/** Whether reminders reach the owner address, after the address itself. */
+function ownerStatusText(status: ClientEngagementRow["ownerEmailStatus"]): string {
+  if (status === "unsent")
+    return " (not confirmed: save the address again to send the confirmation link)";
+  if (status === "waiting") return " (not confirmed yet)";
+  if (status === "stopped") return " (owner stopped reminders)";
+  return "";
+}

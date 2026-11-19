@@ -1,0 +1,22 @@
+[project]
+name = "controlguard"
+version = "0.1.0"
+description = "Local deterministic internal-control review tools"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "mypy>=1.11,<3"]
+
+[tool.setuptools.packages.find]
+include = ["controlguard*"]
+
+[tool.setuptools.package-data]
+controlguard = ["catalogs.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+files = ["controlguard", "scripts", "tests"]

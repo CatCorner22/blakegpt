@@ -1,0 +1,1 @@
+{"adapter":"a1","repo":"Qwen/Qwen3-8B","revision":"b968826d9c46dd6066d109eabc6255188de91218","mode":"unsloth-qlora","steps":40,"eval_limit":8,"max_length":1024}

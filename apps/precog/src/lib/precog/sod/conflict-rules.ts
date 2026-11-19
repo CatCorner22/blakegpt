@@ -1,0 +1,996 @@
+/**
+ * The duty-conflict rulebook every line of business shares: the duties a
+ * person can hold, the pairs of duties one person must not hold together, and
+ * how the duty families conflict when no named rule covers a pair.
+ *
+ * Duty ids are stored in saved profiles, so a few keep the dental names they
+ * started with (pms_admin_roles, edit_patient_master, submit_claims); their
+ * labels are the words every business reads.
+ *
+ * Educational control design, not a legal compliance product.
+ */
+
+export type DutyFamily =
+  "authorization" | "custody" | "recording" | "reconciliation" | "master_data";
+
+export type EntitlementId =
+  | "collect_cash"
+  | "post_payments"
+  | "prepare_deposit"
+  | "bank_reconcile"
+  | "approve_writeoffs"
+  | "post_adjustments"
+  | "submit_claims"
+  | "create_vendor"
+  | "approve_vendor"
+  | "approve_invoices"
+  | "release_payment"
+  | "approve_payroll"
+  | "enter_payroll"
+  | "edit_payroll_master"
+  | "post_journal_entries"
+  | "pms_admin_roles"
+  | "issue_refunds"
+  | "change_fee_schedule"
+  | "edit_patient_master"
+  | "manage_user_access"
+  | "export_bulk_data"
+  | "order_supplies"
+  | "receive_goods"
+  | "enter_invoices"
+  | "initiate_ach"
+  | "sign_checks"
+  | "review_audit_logs"
+  | "manage_backups"
+  | "hold_company_card"
+  | "review_card_statement"
+  | "approve_expenses"
+  | "view_reports_only";
+
+interface Entitlement {
+  id: EntitlementId;
+  label: string;
+  family: DutyFamily;
+  processIds: string[];
+  riskWeight: number; // 1–5
+  /**
+   * A control step many small businesses do not have. Nobody holding it is
+   * a choice, not a gap: coverage leaves it out until someone holds it.
+   */
+  optional?: boolean;
+}
+
+export interface ConflictRule {
+  id: string;
+  a: EntitlementId;
+  b: EntitlementId;
+  severity: "critical" | "high" | "medium";
+  title: string;
+  why: string;
+  fraudPath: string;
+  compensatingDefaults: string[];
+  linkedScenarioId?: string;
+  linkedControlId?: string;
+}
+
+export const ENTITLEMENTS: Entitlement[] = [
+  {
+    id: "collect_cash",
+    label: "Take payment from customers",
+    family: "custody",
+    processIds: ["proc-cash"],
+    riskWeight: 5,
+  },
+  {
+    id: "post_payments",
+    label: "Record payments received",
+    family: "recording",
+    processIds: ["proc-cash", "proc-ar"],
+    riskWeight: 4,
+  },
+  {
+    id: "prepare_deposit",
+    label: "Prepare bank deposit",
+    family: "custody",
+    processIds: ["proc-cash"],
+    riskWeight: 5,
+  },
+  {
+    id: "bank_reconcile",
+    label: "Reconcile the bank account",
+    family: "reconciliation",
+    processIds: ["proc-cash", "proc-ar"],
+    riskWeight: 5,
+  },
+  {
+    id: "approve_writeoffs",
+    label: "Approve write-offs and voids",
+    family: "authorization",
+    processIds: ["proc-ar", "proc-claims"],
+    riskWeight: 5,
+  },
+  {
+    id: "post_adjustments",
+    label: "Enter write-offs",
+    family: "recording",
+    processIds: ["proc-ar", "proc-claims"],
+    riskWeight: 4,
+  },
+  {
+    id: "submit_claims",
+    label: "Issue invoices or claims",
+    family: "recording",
+    processIds: ["proc-claims"],
+    riskWeight: 3,
+  },
+  {
+    id: "create_vendor",
+    label: "Set up suppliers",
+    family: "master_data",
+    processIds: ["proc-ap"],
+    riskWeight: 5,
+  },
+  {
+    id: "approve_vendor",
+    label: "Approve new suppliers",
+    family: "authorization",
+    processIds: ["proc-ap"],
+    riskWeight: 4,
+  },
+  {
+    // The second person on a bill: they check the bill against what was
+    // ordered and received before anyone pays it.
+    id: "approve_invoices",
+    label: "Approve bills for payment",
+    family: "authorization",
+    processIds: ["proc-ap"],
+    riskWeight: 4,
+    optional: true,
+  },
+  {
+    id: "release_payment",
+    label: "Release payments",
+    family: "custody",
+    processIds: ["proc-ap"],
+    riskWeight: 5,
+  },
+  {
+    id: "enter_payroll",
+    label: "Enter payroll",
+    family: "recording",
+    processIds: ["proc-payroll"],
+    riskWeight: 3,
+  },
+  {
+    id: "approve_payroll",
+    label: "Approve payroll",
+    family: "authorization",
+    processIds: ["proc-payroll"],
+    riskWeight: 4,
+  },
+  {
+    id: "edit_payroll_master",
+    label: "Add employees or change pay rates and bank details",
+    family: "master_data",
+    processIds: ["proc-payroll"],
+    riskWeight: 4,
+  },
+  {
+    id: "post_journal_entries",
+    label: "Post manual journal entries",
+    family: "recording",
+    processIds: ["proc-cash", "proc-ar"],
+    riskWeight: 4,
+  },
+  {
+    id: "pms_admin_roles",
+    label: "Administer the system and its user roles",
+    family: "master_data",
+    processIds: ["proc-claims", "proc-schedule"],
+    riskWeight: 4,
+  },
+  {
+    id: "view_reports_only",
+    label: "View financial reports only",
+    family: "reconciliation",
+    processIds: [],
+    riskWeight: 1,
+  },
+  {
+    id: "issue_refunds",
+    label: "Issue customer refunds",
+    family: "custody",
+    processIds: ["proc-ar", "proc-cash"],
+    riskWeight: 5,
+  },
+  {
+    id: "change_fee_schedule",
+    label: "Change fee schedules / pricing",
+    family: "master_data",
+    processIds: ["proc-ar", "proc-claims"],
+    riskWeight: 4,
+  },
+  {
+    id: "edit_patient_master",
+    label: "Edit customer master records",
+    family: "master_data",
+    processIds: ["proc-schedule", "proc-ar"],
+    riskWeight: 3,
+  },
+  {
+    id: "manage_user_access",
+    label: "Create users / assign system access",
+    family: "master_data",
+    processIds: ["proc-schedule", "proc-claims"],
+    riskWeight: 5,
+  },
+  {
+    id: "export_bulk_data",
+    label: "Export customer or financial data in bulk",
+    family: "custody",
+    processIds: ["proc-ar", "proc-claims"],
+    riskWeight: 4,
+  },
+  {
+    id: "order_supplies",
+    label: "Order supplies / services",
+    family: "authorization",
+    processIds: ["proc-ap", "proc-clinical"],
+    riskWeight: 3,
+  },
+  {
+    id: "receive_goods",
+    label: "Confirm receipt of goods / services",
+    family: "custody",
+    processIds: ["proc-ap"],
+    riskWeight: 3,
+  },
+  {
+    id: "enter_invoices",
+    label: "Enter invoices / bills",
+    family: "recording",
+    processIds: ["proc-ap"],
+    riskWeight: 4,
+  },
+  {
+    id: "initiate_ach",
+    label: "Initiate ACH / electronic payment",
+    family: "custody",
+    processIds: ["proc-ap", "proc-payroll"],
+    riskWeight: 5,
+  },
+  {
+    id: "sign_checks",
+    label: "Sign / release checks",
+    family: "authorization",
+    processIds: ["proc-ap", "proc-payroll"],
+    riskWeight: 5,
+  },
+  {
+    id: "review_audit_logs",
+    label: "Review system audit / access logs",
+    family: "reconciliation",
+    processIds: ["proc-claims", "proc-ar"],
+    riskWeight: 3,
+  },
+  {
+    id: "manage_backups",
+    label: "Manage backups / recovery settings",
+    family: "custody",
+    processIds: ["proc-clinical", "proc-claims"],
+    riskWeight: 4,
+  },
+  {
+    // A card is a checking account under another name: it takes cash
+    // advances, buys gift cards, and pays a personal bill as readily as a
+    // supplier. Holding one is holding money. A business with no card has
+    // nobody holding this, and that is not a gap.
+    id: "hold_company_card",
+    label: "Spend on a company card or charge account",
+    family: "custody",
+    processIds: ["proc-ap"],
+    riskWeight: 4,
+    optional: true,
+  },
+  {
+    // In most small businesses nobody "reviews" the statement as such: the
+    // person who codes each line into the books is the review. Many have
+    // nobody in the seat at all, so an empty seat is a choice, not a gap.
+    id: "review_card_statement",
+    label: "Review and code the company card statement",
+    family: "reconciliation",
+    processIds: ["proc-ap"],
+    riskWeight: 4,
+    optional: true,
+  },
+  {
+    // Reimbursements are the quietest way to raise one's own pay: untaxed,
+    // and never read as a raise. Whoever signs them off holds this.
+    id: "approve_expenses",
+    label: "Approve expense claims and card spending",
+    family: "authorization",
+    processIds: ["proc-ap", "proc-payroll"],
+    riskWeight: 4,
+    optional: true,
+  },
+];
+
+const ENTITLEMENT_BY_ID = new Map(ENTITLEMENTS.map((e) => [e.id, e] as const));
+
+/** The entitlement record for an id, or undefined for an id the rulebook does not know. */
+export function entitlementById(id: string): Entitlement | undefined {
+  return ENTITLEMENT_BY_ID.get(id as EntitlementId);
+}
+
+/** The label for a duty id; the id itself when the rulebook does not know it. */
+export function entitlementLabel(id: string): string {
+  return ENTITLEMENT_BY_ID.get(id as EntitlementId)?.label ?? id;
+}
+
+/** Every duty except read-only reporting, which changes nothing and conflicts with nothing. */
+export const OPERATING_DUTIES: readonly Entitlement[] = ENTITLEMENTS.filter(
+  (e) => e.id !== "view_reports_only",
+);
+
+/** False for read-only reporting, the one duty that is not an operating duty. */
+export function isOperatingDuty(id: string): boolean {
+  return id !== "view_reports_only";
+}
+
+/**
+ * Incompatible pairs — the core of automated conflict detection.
+ * Symmetric: engine treats (a,b) same as (b,a).
+ */
+export const CONFLICT_RULES: ConflictRule[] = [
+  {
+    id: "rule-refund-adjust",
+    a: "issue_refunds",
+    b: "post_adjustments",
+    severity: "critical",
+    title: "Refund custody + account adjustment",
+    why: "One person can create a false credit and release the resulting refund.",
+    fraudPath: "Post unsupported credit, then refund to a controlled payment method",
+    compensatingDefaults: [
+      "A second person who issues no refunds approves each refund before it goes out",
+      "Every refund goes only to the card or account that paid, and the owner reads each month's refunds by employee",
+    ],
+    linkedControlId: "c-sod-billing",
+  },
+  {
+    id: "rule-invoice-pay",
+    a: "enter_invoices",
+    b: "release_payment",
+    severity: "critical",
+    title: "Invoice entry + payment release",
+    why: "The same person can enter an unsupported invoice and pay it.",
+    fraudPath: "Enter fictitious invoice and release payment",
+    compensatingDefaults: [
+      "Someone who enters no bills approves each one before anyone pays it (record them as approving bills for payment)",
+      "A second person releases each payment above a set amount, using their own sign-in",
+    ],
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-invoice-approve",
+    a: "enter_invoices",
+    b: "approve_invoices",
+    severity: "high",
+    title: "Bill entry + bill approval",
+    why: "The person who enters a bill also approves it for payment, so a false or inflated bill needs nobody else's sign-off.",
+    fraudPath:
+      "Enter a bill from a shell or friendly supplier, approve it, and let the payment run pay it",
+    compensatingDefaults: [
+      "Someone who enters no bills approves each one before payment",
+      "Owner compares the paid-bills list with supplier statements monthly",
+    ],
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-order-receive",
+    a: "order_supplies",
+    b: "receive_goods",
+    severity: "high",
+    title: "Ordering + receipt confirmation",
+    why: "The requester can conceal missing, diverted, or never-delivered goods.",
+    fraudPath: "Order for personal use and self-confirm receipt",
+    compensatingDefaults: [
+      "Someone who places no orders signs for each delivery against the packing slip",
+      "Each month, someone who neither orders nor receives stock counts it against the purchase records",
+    ],
+  },
+  {
+    id: "rule-ach-release",
+    a: "initiate_ach",
+    b: "release_payment",
+    severity: "critical",
+    title: "ACH initiation + payment release",
+    why: "The person who sets up an electronic payment in the bank also approves its release, so the bank's second approval comes from the same hands and a transfer to their own account goes out with nobody else seeing it.",
+    fraudPath: "Set up an electronic payment to yourself, then approve its release",
+    compensatingDefaults: [
+      "The bank requires a second person's approval to release each electronic payment",
+      "Owner approves each release from their own bank sign-in",
+    ],
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-access-log",
+    a: "manage_user_access",
+    b: "review_audit_logs",
+    severity: "critical",
+    title: "Access administration + audit-log review",
+    why: "An administrator can grant access and suppress independent detection.",
+    fraudPath: "Create privileged account and self-clear or ignore evidence",
+    compensatingDefaults: [
+      "Each quarter, the owner reviews who holds which system permissions and removes any nobody needs",
+      "The activity log stays with the software provider, where no employee sign-in can edit it, and the owner reads it each month",
+    ],
+  },
+  {
+    id: "rule-access-export",
+    a: "manage_user_access",
+    b: "export_bulk_data",
+    severity: "high",
+    title: "Access administration + bulk export",
+    why: "The same person can grant themselves access and export sensitive data.",
+    fraudPath: "Elevate access, export PHI or financial data, then remove account",
+    compensatingDefaults: [
+      "The system emails the owner each time anyone exports customer or patient records in bulk",
+      "Owner reads the system's report of new users and permission changes each month",
+    ],
+  },
+  {
+    id: "rule-backup-access",
+    a: "manage_backups",
+    b: "manage_user_access",
+    severity: "high",
+    title: "Identity administration + backup control",
+    why: "Concentrated administrative power can disable recovery and conceal destructive activity.",
+    fraudPath: "Alter access and delete or weaken recovery copies",
+    compensatingDefaults: [
+      "Only the owner holds the sign-in to the backup service, and each quarter the owner confirms nobody else has one",
+      "Owner keeps one backup copy no employee sign-in can delete, offline or under the owner's own account, and checks each month that it is current",
+    ],
+  },
+  {
+    id: "rule-payments-adjust",
+    a: "post_payments",
+    b: "post_adjustments",
+    severity: "high",
+    title: "Payment posting + write-off entry",
+    why: "The same person records what customers paid and can write off or credit what they still owe, so an adjustment can cover a payment that never reached the bank, and the customer's account still looks settled.",
+    fraudPath: "Take a payment, then post a write-off or credit so the balance closes without it",
+    compensatingDefaults: [
+      "Monthly report of every write-off and credit, by employee, read by the owner",
+      "Adjustments above a set amount approved by a second person before posting",
+    ],
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-sign-rec",
+    a: "sign_checks",
+    b: "bank_reconcile",
+    severity: "critical",
+    title: "Check signing + bank reconciliation",
+    why: "The same person signs or releases the checks and reconciles the account they clear through, so the same hand approves a check to themselves and then confirms it.",
+    fraudPath: "Sign a check to yourself and reconcile the statement so nobody else sees it clear",
+    compensatingDefaults: [
+      "Owner opens the bank statement first and reads every cleared-check image",
+      "Bank Positive Pay: the bank pays only checks on the owner's list",
+    ],
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-release-rec",
+    a: "release_payment",
+    b: "bank_reconcile",
+    severity: "critical",
+    title: "Payment release + bank reconciliation",
+    why: "The person who sends the money out also produces the record that proves it went where it belonged. The same hands reconcile a transfer to their own account, or to a payee they invented, and the one person with a reason to make the books agree with the bank runs the one check that compares them.",
+    fraudPath:
+      "Pay yourself or an invented payee by ACH or card, then reconcile the statement so nobody else sees where it went",
+    compensatingDefaults: [
+      "Owner opens the bank statement first and questions every payee they do not know",
+      "Someone who releases no payments reconciles the account each month",
+    ],
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-release-je",
+    a: "release_payment",
+    b: "post_journal_entries",
+    severity: "critical",
+    title: "Payment release + manual journal entries",
+    why: "The person who sends money out can also post the journal entry that explains it, so they can book a transfer to their own account as an expense or bury it in a balance-sheet account, and the books still balance. A dealership office manager who wired himself $1.4 million over 14 years, and a practice office manager who moved payments to her own card, each covered it with false journal entries.",
+    fraudPath:
+      "Send a payment to yourself, then post a journal entry that makes the books balance around it",
+    compensatingDefaults: [
+      "Owner opens the bank statement first and questions every payee they do not know",
+      "An outside accountant reviews manual journal entries and asks for support for each one",
+    ],
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-payroll-master-release",
+    a: "edit_payroll_master",
+    b: "release_payment",
+    severity: "high",
+    title: "Change employee records + release payments",
+    why: "The person who can add an employee or change a bank account on the payroll file can also send payments, so the same hands set up a ghost employee or a redirected paycheck and then pay it, without passing anyone else.",
+    fraudPath: "Add a ghost employee or change a pay account to your own, then release the payment",
+    compensatingDefaults: [
+      "Owner reads the payroll register each cycle against who actually works there",
+      "A new employee or a changed bank account needs a second person's approval before the next pay run",
+    ],
+    linkedControlId: "c-payroll",
+  },
+  {
+    id: "rule-payroll-release",
+    a: "enter_payroll",
+    b: "release_payment",
+    severity: "high",
+    title: "Payroll entry + payment release",
+    why: "Whoever enters the hours and pay rates also sends the pay run to the bank or prints the checks, so an extra check to themselves, a raised rate, or a pay line for someone who has left goes out without a second person seeing the register.",
+    fraudPath:
+      "Add a pay line or a paper check for yourself and release it with the rest of the run",
+    compensatingDefaults: [
+      "Owner reads the payroll register each cycle before anyone releases the run",
+      "Owner compares the payroll register with the bank's cleared payments and headcount",
+    ],
+    linkedControlId: "c-payroll",
+  },
+  {
+    id: "rule-payroll-rec",
+    a: "enter_payroll",
+    b: "bank_reconcile",
+    severity: "high",
+    title: "Payroll entry + bank reconciliation",
+    why: "The person who runs payroll also reconciles the account it pays from, so the same hands match off a payroll payment nobody authorized, and it never reaches anyone who would ask who it was for.",
+    fraudPath:
+      "Pay yourself through payroll, then reconcile the account so the extra payment looks like any other pay run",
+    compensatingDefaults: [
+      "Owner reads the payroll register each cycle and compares it with the bank's payroll debits",
+      "Someone who enters no payroll reconciles the account each month",
+    ],
+    linkedControlId: "c-payroll",
+  },
+  {
+    id: "rule-cash-rec",
+    a: "post_payments",
+    b: "bank_reconcile",
+    severity: "critical",
+    title: "Payment posting + bank reconciliation",
+    why: "The same person records the money and checks whether it arrived, so they can paper over a missing deposit in the books, and the check will still balance.",
+    fraudPath: "Take cash, then adjust the books so the bank check still balances",
+    compensatingDefaults: [
+      "Owner checks the bank statement against the books every week, personally",
+      "Two people count the deposit before it leaves",
+    ],
+    linkedScenarioId: "sc-cash-sod-failure",
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-je-rec",
+    a: "post_journal_entries",
+    b: "bank_reconcile",
+    severity: "critical",
+    title: "Manual journal entries + bank reconciliation",
+    why: "A journal entry can make the books agree with any bank balance. When the person who reconciles the account can also post entries, they can write away a missing deposit or an unexplained wire rather than find it. A Granger, Iowa dealership office manager wired $1.4 million to himself over 14 years and balanced the books with journal entries; an Indiana business's accountant who reconciled the bank himself recorded his transfers to himself as invoice payments.",
+    fraudPath: "Take the money, then post an entry that makes the reconciliation tie",
+    compensatingDefaults: [
+      "Owner or outside accountant reviews every manual journal entry each month with its support",
+      "Owner opens the bank statement first each month, before anyone else handles it",
+    ],
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-payroll-master-run",
+    a: "edit_payroll_master",
+    b: "enter_payroll",
+    severity: "high",
+    title: "Change employee records + run payroll",
+    why: "Whoever can add a name, change a pay rate, or change a bank account and also run the payroll can pay anyone they invent. An Idaho district manager reactivated the records of employees who had left and entered their hours for three years; a St. Louis warehouse supervisor kept a person who never worked there on payroll for six and a half years.",
+    fraudPath:
+      "Reactivate someone who has left, point the deposit at your own account, enter the hours",
+    compensatingDefaults: [
+      "Owner reads the new-hire, rate-change, and bank-change report every payroll",
+      "Owner compares the people paid against the people scheduled each payroll",
+    ],
+    linkedControlId: "c-payroll",
+  },
+  {
+    id: "rule-custody-rec",
+    a: "collect_cash",
+    b: "bank_reconcile",
+    severity: "critical",
+    title: "Cash custody + bank reconciliation",
+    why: "Holding the cash and checking the bank account leaves nobody to notice a shortfall, because the only person who could compare the two is the person who caused it.",
+    fraudPath: "Keep cash, then clear the discrepancy yourself",
+    compensatingDefaults: [
+      "The owner or an outside bookkeeper reconciles the bank account each month instead",
+      "A camera covers the till at close, and the owner checks the footage whenever the count is short",
+    ],
+    linkedScenarioId: "sc-cash-sod-failure",
+    linkedControlId: "c-cash",
+  },
+  {
+    id: "rule-collect-post",
+    a: "collect_cash",
+    b: "post_payments",
+    severity: "high",
+    title: "Collect cash + post payments",
+    why: "Taking payment and recording it are the same act here, so the amount recorded can simply be smaller than the amount received, or cancelled afterwards.",
+    fraudPath: "Take the payment, record less, or void it later",
+    compensatingDefaults: [
+      "Owner compares the till total against recorded payments daily",
+      "Whoever enters a void or adjustment records the reason each time, and the owner reads them weekly",
+    ],
+    linkedControlId: "c-cash",
+  },
+  {
+    id: "rule-collect-adjust",
+    a: "collect_cash",
+    b: "post_adjustments",
+    severity: "high",
+    title: "Collect cash + enter write-offs",
+    why: "The person who takes the customer's money can also void the sale, edit the payment record, or write the balance off, so a payment kept at the counter leaves behind a record that says the customer owed nothing. A counter clerk who entered voids and no-sales, a dental employee who edited payment records in the billing software, and a dealership office manager who falsified transaction entries each hid a kept payment this way.",
+    fraudPath:
+      "Take the payment, then post a void, credit, or write-off so the account closes without it",
+    compensatingDefaults: [
+      "Owner reads a monthly list of every void, credit, and write-off, by employee",
+      "A second person approves any void or write-off above a set amount before it posts",
+    ],
+    linkedControlId: "c-sod-billing",
+  },
+  {
+    id: "rule-cash-void",
+    a: "collect_cash",
+    b: "approve_writeoffs",
+    severity: "high",
+    title: "Take payments + approve voids or write-offs",
+    why: "The person who takes the money can also approve the void, comp or write-off that cancels the record of taking it, so a payment kept from the till or the deposit leaves no balance behind and needs nobody else's sign-off. A counter clerk who turned sales into voids and no-sales did exactly this.",
+    fraudPath:
+      "Take the payment, then approve a void or write-off so the sale or the balance disappears",
+    compensatingDefaults: [
+      "Owner reads a weekly list of voids, comps and write-offs by employee",
+      "Voids above a small amount need a second person's code at the time",
+    ],
+    linkedControlId: "c-cash",
+  },
+  {
+    id: "rule-cash-admin",
+    a: "collect_cash",
+    b: "pms_admin_roles",
+    severity: "high",
+    title: "Take payments + administer the system",
+    why: "The person who takes payments can also change the system that records them: delete a payment, edit a receipt, or change who may do either, so money kept at the counter leaves no record behind.",
+    fraudPath: "Keep a payment, then delete or rewrite its record with administrator rights",
+    compensatingDefaults: [
+      "Administrator rights sit with the owner or an outside IT provider, not with anyone who takes payments",
+      "Owner reads the system's report of deleted and edited payments each month",
+    ],
+    linkedControlId: "c-cash",
+  },
+  {
+    id: "rule-access-release",
+    a: "manage_user_access",
+    b: "release_payment",
+    severity: "high",
+    title: "Control sign-ins + release payments",
+    why: "The person who decides who can sign in to the payment or banking system can also send payments, so they can create or borrow a second signer's sign-in and release a payment that dual release exists to stop.",
+    fraudPath:
+      "Give yourself a second signer's sign-in, then release a payment with both approvals",
+    compensatingDefaults: [
+      "The owner, not anyone who releases payments, manages access to the bank and payment systems",
+      "The bank alerts the owner to every new user or permission change",
+    ],
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-cash-refund",
+    a: "collect_cash",
+    b: "issue_refunds",
+    severity: "high",
+    title: "Take payments + issue refunds",
+    why: "The person at the till can refund a sale that never happened, or refund a real one to their own card, and the refund reads as ordinary customer service.",
+    fraudPath: "Issue a refund with no sale behind it, to cash or to your own card",
+    compensatingDefaults: [
+      "Refunds only to the card or account that paid, with the original sale attached",
+      "Owner reads a monthly list of refunds by employee and by destination card",
+    ],
+    linkedControlId: "c-cash",
+  },
+  {
+    id: "rule-refund-post",
+    a: "issue_refunds",
+    b: "post_payments",
+    severity: "high",
+    title: "Issue refunds + record payments",
+    why: "The person who records what customers paid can also send money back to them, so a refund can go out against a payment the business never received, or against a balance recorded as overpaid, and the account still looks settled.",
+    fraudPath: "Record a credit or overpayment on an account, then refund it to yourself",
+    compensatingDefaults: [
+      "A second person approves each refund before anyone pays it, with the original payment attached",
+      "Owner reads a monthly list of refunds by employee and by destination",
+    ],
+    linkedControlId: "c-sod-billing",
+  },
+  {
+    id: "rule-deposit-post",
+    a: "prepare_deposit",
+    b: "post_payments",
+    severity: "high",
+    title: "Deposit prep + payment posting",
+    why: "Whoever prepares the deposit can also change what the books say came in, so the two will always agree no matter what went in the bag.",
+    fraudPath: "Bank less than came in, then adjust the books to match",
+    compensatingDefaults: [
+      "Each week, someone who neither prepares deposits nor posts payments matches each deposit slip to the payments posted",
+      "Two people count each deposit and both sign the deposit log before it leaves",
+    ],
+    linkedControlId: "c-sod-cash",
+  },
+  {
+    id: "rule-writeoff",
+    a: "approve_writeoffs",
+    b: "post_adjustments",
+    severity: "critical",
+    title: "Approve + post write-offs",
+    why: "An adjustment that needs nobody else’s approval can erase a balance the customer actually paid, and the payment goes with it.",
+    fraudPath: "Write off a balance the customer paid, and keep the payment",
+    compensatingDefaults: [
+      "Owner approves any write-off above the amount you set",
+      "Monthly list of every write-off, reviewed by the owner",
+    ],
+    linkedScenarioId: "sc-writeoff-abuse",
+    linkedControlId: "c-sod-billing",
+  },
+  {
+    id: "rule-claims-writeoff",
+    a: "submit_claims",
+    b: "approve_writeoffs",
+    severity: "high",
+    title: "Claims submission + write-off authority",
+    why: "The same person can write off unpaid invoices and claims rather than chase them, which hides lost revenue as though it were a routine adjustment.",
+    fraudPath: "Write off unpaid claims instead of pursuing them, hiding the loss",
+    compensatingDefaults: [
+      "Each month, an office manager who submits no claims reads the list of denied and unpaid claims and follows up each one",
+      "Owner approves each write-off above the amount you set before it posts",
+    ],
+    linkedScenarioId: "sc-writeoff-abuse",
+    linkedControlId: "c-sod-billing",
+  },
+  {
+    id: "rule-vendor-create-pay",
+    a: "create_vendor",
+    b: "release_payment",
+    severity: "critical",
+    title: "Create vendor + release payment",
+    why: "One person can invent a supplier and then pay it, and the payments look entirely ordinary in the accounts. Nothing in the books distinguishes an invented supplier from a real one.",
+    fraudPath: "Set up a supplier that does not exist, then pay it",
+    compensatingDefaults: [
+      "A second person releases any electronic payment above the amount you set, using their own sign-in",
+      "Owner reviews every supplier added that month",
+    ],
+    linkedScenarioId: "sc-vendor-fraud",
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-vendor-create-approve",
+    a: "create_vendor",
+    b: "approve_vendor",
+    severity: "high",
+    title: "Create + approve vendor",
+    why: "Adding a supplier and approving it are the same step, so nothing stands between an invented payee and the payment run.",
+    fraudPath: "Approve a supplier you set up yourself",
+    compensatingDefaults: [
+      "Owner signs off each new supplier, against a W-9 and a real address, before its first payment",
+      "The bank requires a second person's approval to release each electronic payment",
+    ],
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-vendor-create-invoice",
+    a: "create_vendor",
+    b: "enter_invoices",
+    // Supplier set-up and bill entry are the two halves a CPA separates first
+    // in payables: together they make an invented supplier's bill look real.
+    severity: "high",
+    title: "Create vendor + enter bills",
+    why: "One person can set up a supplier and then enter its bills, so an invented supplier arrives in the payment run with paperwork that looks like any real supplier's.",
+    fraudPath: "Set up a supplier that does not exist, then enter its bills for payment",
+    compensatingDefaults: [
+      "Owner approves every new supplier before anyone enters a bill from it",
+      "Owner reviews every supplier added that month",
+    ],
+    linkedScenarioId: "sc-vendor-fraud",
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-vendor-approve-pay",
+    a: "approve_vendor",
+    b: "release_payment",
+    // Approving a supplier and paying it is the fictitious-vendor path in the
+    // case library (a Denny's franchise, a Jersey City condominium, a Brooklyn
+    // nonprofit), so it ranks high.
+    severity: "high",
+    title: "Approve vendor + release payment",
+    why: "The person releasing the money also gives the approval that confirms a supplier is real, which removes the only check on where it goes.",
+    fraudPath: "Approve and pay in one motion, with no one else looking",
+    compensatingDefaults: [
+      "Before each payment run, someone who approves no suppliers reads the list of payees and amounts",
+      "A second person approves each payment above the amount you set before it goes out",
+    ],
+    linkedControlId: "c-sod-ap",
+  },
+  {
+    id: "rule-payroll",
+    a: "enter_payroll",
+    b: "approve_payroll",
+    severity: "high",
+    title: "Enter + approve payroll",
+    why: "Whoever runs payroll can change what payroll says, including their own pay. A Florida construction office manager raised her own weekly pay by $1,000, then $2,000; an Idaho district manager paid $685,376 to employees who had left and whose records he reactivated.",
+    fraudPath: "Add hours, a raise, or a reimbursement to your own pay",
+    compensatingDefaults: [
+      "Owner approves the final payroll file each pay run, after the person who entered it",
+      "Owner reads the payroll changes report each pay run: new hires, rate changes, bank changes and unusual hours",
+    ],
+    linkedControlId: "c-payroll",
+  },
+  {
+    id: "rule-admin-pay",
+    a: "pms_admin_roles",
+    b: "post_payments",
+    severity: "medium",
+    title: "System administration + post payments",
+    why: "Whoever administers the system can give themselves any permission they lack, which makes every other restriction optional.",
+    fraudPath: "Grant yourself the access you need, then clear the record of it",
+    compensatingDefaults: [
+      "Only the owner or an outside IT provider holds administrator rights, and the owner checks that list each quarter",
+      "Owner reads the system's log of permission changes each month",
+    ],
+  },
+  {
+    id: "rule-admin-writeoff",
+    a: "pms_admin_roles",
+    b: "post_adjustments",
+    severity: "high",
+    title: "System administration + post adjustments",
+    why: "System administration plus write-off authority means one person can switch off the approval requirement itself before anyone uses it.",
+    fraudPath: "Turn off the approval requirement, then write the balance off",
+    compensatingDefaults: [
+      "Anyone with administrator rights uses a separate administrator sign-in, never their daily billing one, and the owner reads its change log each month",
+    ],
+    linkedControlId: "c-sod-billing",
+  },
+  {
+    id: "rule-card-review",
+    a: "hold_company_card",
+    b: "review_card_statement",
+    severity: "high",
+    title: "Company card + its statement review",
+    why: "The person who spends on the company card is the person who reads its statement and codes each line into the books, so a personal charge, a cash advance, or a gift card goes into the books as supplies, and nobody else ever sees the line. A Bellevue dental office worker ran $174,336 of cash advances and personal spending through a practice card whose statement came to her; a Hutchinson construction controller who held the company cards and reconciled everything took $2.06 million.",
+    fraudPath:
+      "Spend on the card, then code the charge as a business expense on a statement nobody else reads",
+    compensatingDefaults: [
+      "Owner reads the company card statement line by line every month, before anyone codes it",
+      "Cash advances turned off on every company card, with a low limit per card",
+    ],
+    linkedControlId: "c-cards",
+  },
+  {
+    id: "rule-card-approve",
+    a: "hold_company_card",
+    b: "approve_expenses",
+    severity: "high",
+    title: "Company card + expense approval",
+    why: "The person who spends on the company card also approves expense claims and card spending, so their own charges and reimbursements carry an approval that came from the same hands, and nobody without a stake in the spending ever asks what a charge was for. A Franklin, Massachusetts office manager put $105,000 of personal spending on the company card and paid herself $268,046 in reimbursements for expenses she never incurred.",
+    fraudPath:
+      "Charge personal spending to the card or claim a reimbursement, then approve it yourself",
+    compensatingDefaults: [
+      "Nobody approves their own card statement or expense claim, at any amount",
+      "Every reimbursement above a small threshold needs a receipt and a second person's approval",
+    ],
+    linkedControlId: "c-cards",
+  },
+];
+
+/**
+ * Duties that are another channel of a duty the rules name. Initiating an ACH
+ * and signing a check each send money out, so creating a vendor and
+ * initiating the ACH is the shell-vendor path exactly as creating a vendor and
+ * releasing the payment is. Preparing the deposit is holding the cash on its
+ * way to the bank, so preparing it and reconciling the account it lands in is
+ * the cash-custody gap exactly as taking the payment and reconciling is.
+ */
+export const CHANNEL_OF: Readonly<Partial<Record<EntitlementId, EntitlementId>>> = {
+  initiate_ach: "release_payment",
+  sign_checks: "release_payment",
+  prepare_deposit: "collect_cash",
+};
+
+/**
+ * The ways money leaves the account. Paired with any other duty, each one
+ * stands for sending money out (see CHANNEL_OF). Paired with each other they
+ * are one power, not a gap: signing a check and releasing a payment is one
+ * act, and a check signer who also initiates ACH has not approved their own
+ * transfer. The one exception is a named rule: initiating an electronic
+ * payment and releasing it are the bank's maker and checker, and one person in
+ * both seats approves their own transfer (rule-ach-release).
+ */
+export const PAYMENT_CHANNELS: ReadonlySet<EntitlementId> = new Set<EntitlementId>([
+  "release_payment",
+  "initiate_ach",
+  "sign_checks",
+]);
+
+/**
+ * A finding that says the same thing as another one for the same person.
+ * Signing checks is releasing payments on paper, so a person who both releases
+ * payments and signs checks, and reconciles, has one gap ("sends money out and
+ * reconciles"), not two. Keys are the rule dropped, values the rule kept.
+ */
+export const SUBSUMED_BY: Readonly<Record<string, string>> = {
+  "rule-sign-rec": "rule-release-rec",
+};
+
+/** Family-level matrix: true = inherently conflicting when combined. */
+export const FAMILY_CONFLICT_MATRIX: Record<DutyFamily, Partial<Record<DutyFamily, boolean>>> = {
+  authorization: { custody: true, recording: true, master_data: true },
+  custody: {
+    authorization: true,
+    recording: true,
+    reconciliation: true,
+    master_data: true,
+  },
+  recording: {
+    authorization: true,
+    custody: true,
+    reconciliation: true,
+  },
+  reconciliation: { custody: true, recording: true },
+  master_data: { custody: true, authorization: true },
+};
+
+/**
+ * Hard gates: two exposures no additive score dilutes. A conflict whose pair
+ * touches one of these duties is always top tier, whatever weight the pair
+ * carries on its own, and the finding names the gate so the owner sees why.
+ *
+ * - money_out: a wire, ACH, check or refund that already left cannot be
+ *   recalled, so there is no later step that catches it.
+ * - statutory_liability: unpaid payroll withholdings fall on the owner
+ *   personally (the trust-fund recovery penalty), whoever ran payroll.
+ *
+ * Educational control design, not legal advice.
+ */
+export type HardGate = "money_out" | "statutory_liability";
+
+export const HARD_GATE_DUTIES: Readonly<Record<HardGate, readonly EntitlementId[]>> = {
+  money_out: ["release_payment", "initiate_ach", "sign_checks", "issue_refunds"],
+  statutory_liability: ["approve_payroll", "enter_payroll", "edit_payroll_master"],
+};
+
+export const HARD_GATE_WORDS: Readonly<Record<HardGate, { label: string; why: string }>> = {
+  money_out: {
+    label: "Money leaves and cannot be recalled",
+    why: "A wire, ACH, check or refund that already left is gone. No later step catches it, so this pair stays top tier whatever its own weight.",
+  },
+  statutory_liability: {
+    label: "Payroll taxes fall on the owner personally",
+    why: "Withholdings that never reach the IRS or the state come back to the owner as a personal penalty, whoever ran payroll. This pair stays top tier whatever its own weight.",
+  },
+};
+
+/** The gate a duty pair trips, money out first; undefined when neither duty is gated. */
+export function hardGate(a: EntitlementId, b: EntitlementId): HardGate | undefined {
+  for (const gate of ["money_out", "statutory_liability"] as const) {
+    const duties = HARD_GATE_DUTIES[gate];
+    if (duties.includes(a) || duties.includes(b)) return gate;
+  }
+  return undefined;
+}
+
+/** A rule's severity after the hard gates: critical when its pair trips one. */
+export function gatedSeverity(
+  rule: Pick<ConflictRule, "a" | "b" | "severity">,
+): ConflictRule["severity"] {
+  return hardGate(rule.a, rule.b) ? "critical" : rule.severity;
+}

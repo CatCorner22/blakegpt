@@ -1,0 +1,64 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { Pool, types } from "pg";
+import type { Sql } from "@/lib/db";
+import { DB_TYPE_PARSERS, postgresTransaction, toSql } from "@/lib/sql-transaction";
+import { migrationFiles, MIGRATIONS_DIR, openTestDb, SEED_USER_SQL } from "./pglite";
+
+export interface SafetyDb {
+  sql: Sql;
+  pg: { exec(text: string): Promise<unknown> };
+  seedUser(id: string): Promise<void>;
+  close(): Promise<void>;
+}
+/** Real concurrency requires separate PostgreSQL connections, never a single WASM instance. */
+export async function openSafetyDb(): Promise<SafetyDb> {
+  if (process.env.PRECOG_LIFECYCLE_POSTGRES !== "1") return openTestDb();
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString)
+    throw new Error("Set DATABASE_URL to an isolated local PostgreSQL database");
+  const url = new URL(connectionString);
+  if (!["localhost", "127.0.0.1", "postgres"].includes(url.hostname))
+    throw new Error("Lifecycle tests only accept an isolated local PostgreSQL service");
+  const schema = `precog_lifecycle_${randomUUID().replaceAll("-", "")}`;
+  const admin = new Pool({ connectionString, max: 1 });
+  await admin.query(`create schema ${schema}`);
+  const pool = new Pool({
+    connectionString,
+    max: 8,
+    options: `-c search_path=${schema}`,
+    types: { getTypeParser: typeParser },
+  });
+  const sql = toSql(
+    async <T>(text: string, params: unknown[]) => (await pool.query(text, params)).rows as T[],
+  );
+  sql.transaction = (work) => postgresTransaction(pool, work);
+  const close = async () => {
+    await pool.end();
+    try {
+      await admin.query(`drop schema ${schema} cascade`);
+    } finally {
+      await admin.end();
+    }
+  };
+  try {
+    for (const file of await migrationFiles())
+      await pool.query(await readFile(join(MIGRATIONS_DIR, file), "utf8"));
+  } catch (error) {
+    await close();
+    throw error;
+  }
+  return {
+    sql,
+    pg: { exec: (text) => pool.query(text) },
+    close,
+    seedUser: async (id) => {
+      await pool.query(SEED_USER_SQL, [id, `${id}@example.test`]);
+    },
+  };
+}
+
+/** The app's result-type parsers (DB_TYPE_PARSERS) on this pool alone, pg's defaults otherwise. */
+const typeParser = ((oid: number, format?: "text" | "binary") =>
+  DB_TYPE_PARSERS[oid] ?? types.getTypeParser(oid, format)) as typeof types.getTypeParser;

@@ -1,0 +1,5 @@
+Cat Samurai — Blake’s design and engineering principle
+
+Blake wants everything to be calm on the surface and as intuitive as possible. Underneath, every capability must be extremely disciplined, reliable, powerful, clear, and logical. The experience should be playful and fun, cute and engaging, calm and magnetic. Calm does not mean boring. Reject generic AI-generated design. Blake hates beige: do not use beige app surfaces or a default beige aesthetic. Use purposeful color, thoughtful hierarchy, optional depth, clean code, meaningful tests, reliable recovery, and honest evidence. Preserve Reverie and the Garden Path in Focus.
+
+North Star, for Focus, means: “vibe-coded frontend UI, UX, etc. that is as good as the best human coders.” Passing automated tests alone does not establish that standard.

@@ -1,0 +1,1 @@
+{"adapter":"a2","repo":"Qwen/Qwen3-8B","revision":"b968826d9c46dd6066d109eabc6255188de91218","mode":"gpu-qlora","steps":250,"eval_limit":32}

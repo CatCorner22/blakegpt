@@ -1,0 +1,114 @@
+import { useEffect } from "react";
+import {
+  DependenceCard,
+  LeavingTeamCard,
+  OutTomorrowCard,
+  PlannedLeaveCard,
+} from "@/components/precog/continuity/planner-panels";
+import { PlannerRegisterBanners, PlannerStats } from "@/components/precog/continuity/planner-stats";
+import { PlannerRegisterCard } from "@/components/precog/continuity/planner-register-card";
+import {
+  CheckInCard,
+  CheckInDropsCard,
+  CrossTrainingPlanCard,
+  DocumentationPlanCard,
+  SelectedKnowledgeCard,
+} from "@/components/precog/continuity/planner-register-panels";
+import { StandInSuggestionsCard } from "@/components/precog/continuity/stand-in-suggestions-card";
+import { useContinuityPlanner } from "@/components/precog/continuity/use-continuity-planner";
+
+/** The sections of the tab an address can open on (`?tab=knowledge&item=<section>`). */
+const PLANNER_SECTIONS: ReadonlySet<string> = new Set(["absences", "leaving"]);
+
+/** The Who knows what tab: the register, the plans built from it, and absence planning. */
+export function ContinuityPlanner({ initialKnowledgeId }: { initialKnowledgeId?: string | null }) {
+  const p = useContinuityPlanner(initialKnowledgeId);
+  const select = p.register.select;
+  const selectedId = p.register.selected?.item.id;
+  const target =
+    initialKnowledgeId && PLANNER_SECTIONS.has(initialKnowledgeId)
+      ? initialKnowledgeId
+      : initialKnowledgeId && selectedId === initialKnowledgeId
+        ? "selected-knowledge"
+        : null;
+
+  useEffect(() => {
+    if (!target) return;
+    const frame = requestAnimationFrame(() => {
+      const section = document.getElementById(target);
+      section?.scrollIntoView({ block: "start" });
+      section?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialKnowledgeId, target]);
+
+  return (
+    <div className="space-y-4">
+      <PlannerStats
+        registerAssessed={p.registerAssessed}
+        report={p.report}
+        docs={p.docs}
+        tpl={p.tpl}
+        figures={p.figures}
+      />
+
+      <PlannerRegisterBanners register={p.register} industry={p.industry} tpl={p.tpl} />
+
+      <PlannerRegisterCard
+        register={p.register}
+        report={p.report}
+        tpl={p.tpl}
+        trackFreshness={p.trackFreshness}
+      />
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[1fr_1fr]">
+        <div className="min-w-0 space-y-4">
+          <CrossTrainingPlanCard
+            registerAssessed={p.registerAssessed}
+            report={p.report}
+            journal={p.journal}
+            onSelect={select}
+          />
+          <DocumentationPlanCard docs={p.docs} journal={p.journal} onSelect={select} />
+          <CheckInCard checkIn={p.checkIn} trackFreshness={p.trackFreshness} />
+          <CheckInDropsCard
+            checkIn={p.checkIn}
+            trackFreshness={p.trackFreshness}
+            journal={p.journal}
+          />
+        </div>
+
+        <div className="min-w-0 space-y-4">
+          <SelectedKnowledgeCard register={p.register} trackFreshness={p.trackFreshness} />
+          <section id="absences" tabIndex={-1} aria-label="Who is out" className="space-y-4">
+            <PlannedLeaveCard
+              leave={p.leave}
+              people={p.people}
+              tpl={p.tpl}
+              today={p.today}
+              journal={p.journal}
+              onSelect={select}
+            />
+            <OutTomorrowCard
+              whatIf={p.whatIf}
+              people={p.people}
+              registerAssessed={p.registerAssessed}
+              journal={p.journal}
+              onSelect={select}
+            />
+          </section>
+          <section id="leaving" tabIndex={-1} aria-label="Leaving the team">
+            <LeavingTeamCard
+              leaving={p.leaving}
+              today={p.today}
+              journal={p.journal}
+              onSelect={select}
+            />
+          </section>
+          <StandInSuggestionsCard />
+          <DependenceCard registerAssessed={p.registerAssessed} report={p.report} />
+        </div>
+      </div>
+    </div>
+  );
+}

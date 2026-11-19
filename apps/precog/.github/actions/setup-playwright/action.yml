@@ -1,0 +1,28 @@
+name: Set up Playwright's Chromium
+description: >-
+  Restores the Chromium download from the cache (keyed on the installed
+  Playwright version) and installs only the system libraries on a hit.
+runs:
+  using: composite
+  steps:
+    - name: Read the Playwright version
+      id: version
+      shell: bash
+      run: echo "playwright=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Chromium
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-chromium-${{ runner.os }}-${{ steps.version.outputs.playwright }}
+
+    - name: Download Chromium and its system libraries
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npx playwright install --with-deps chromium
+
+    - name: Install Chromium's system libraries
+      if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: npx playwright install-deps chromium

@@ -1,0 +1,607 @@
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentType,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
+import { Check, ChevronDown, ExternalLink, MoreHorizontal } from "lucide-react";
+import type { TabId } from "@/lib/precog/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+
+/** A home-page tab as the strip draws it. */
+export interface ShellTab {
+  id: TabId;
+  label: string;
+  tactical: string;
+  description: string;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+}
+
+/**
+ * The sections. Up to 1024px a horizontal tab strip that tells the user there
+ * is more: a fade on whichever edge still has hidden tabs, and the active tab
+ * scrolled into view so the tabs past the viewport on a narrow screen are
+ * discoverable. From 1024px a fixed left rail lists every section; the fades
+ * and the trailing menu hide.
+ */
+export function TabStrip({
+  activeId,
+  children,
+  trailing,
+  onKeyDown,
+  tabCount,
+}: {
+  activeId: string;
+  children: ReactNode;
+  /** Pinned at the strip's right end, outside the tablist: menus, never tabs. */
+  trailing?: ReactNode;
+  onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
+  /** Every tab, including the ones in All sections and the header. */
+  tabCount: number;
+}) {
+  const ref = useRef<HTMLElement | null>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft < max - 4 });
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const active = ref.current?.querySelector<HTMLElement>("[data-active]");
+    active?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [activeId]);
+
+  return (
+    <div className="relative">
+      <nav
+        ref={ref}
+        role="tablist"
+        aria-label="Sections"
+        data-tab-count={tabCount}
+        onKeyDown={onKeyDown}
+        // `relative` makes the strip the containing block of absolutely placed
+        // text inside a tab (the badges' screen-reader text), so it scrolls and
+        // clips with the tabs instead of widening the page on a phone. The
+        // trailing padding keeps the last tab clear of the pinned control.
+        // On a touch screen every tab is at least 44px tall.
+        className={cn(
+          "relative mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pb-3 sm:px-6 [scrollbar-width:thin] pointer-coarse:[&_[role=tab]]:min-h-11",
+          "lg:fixed lg:top-0 lg:bottom-0 lg:left-0 lg:mx-0 lg:w-60 lg:max-w-none lg:flex-col lg:gap-0.5 lg:overflow-x-hidden lg:overflow-y-auto lg:border-r lg:border-border lg:bg-surface lg:px-3 lg:py-4",
+          trailing && "pr-36 sm:pr-40 lg:pr-3",
+        )}
+      >
+        {children}
+      </nav>
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-bg to-transparent transition-opacity lg:hidden",
+          edges.left ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-bg to-transparent transition-opacity lg:hidden",
+          edges.right ? "opacity-100" : "opacity-0",
+        )}
+      />
+      {trailing && (
+        <div className="pointer-events-none absolute top-0 right-0 bottom-3 flex items-center bg-bg pr-4 pl-2 sm:pr-6 lg:hidden">
+          <div className="pointer-events-none absolute inset-y-0 right-full w-8 bg-gradient-to-l from-bg to-transparent" />
+          <div className="pointer-events-auto">{trailing}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A place on another page that All sections links to, below its views. */
+export interface ShellRouteLink {
+  id: string;
+  label: string;
+  href: string;
+}
+
+/**
+ * Where a fixed-position menu goes so it hangs 4px under `trigger`, flush
+ * with its right edge. A fixed element is placed against the viewport, unless
+ * an ancestor has a transform, filter, backdrop-filter or similar: then that
+ * ancestor's padding box is the frame. The sticky home header has backdrop-blur,
+ * so window coordinates would place the menu relative to the viewport instead.
+ * The right edge is taken from the frame's client width, which leaves out a
+ * vertical scrollbar, where window.innerWidth includes it.
+ */
+function fixedMenuPlace(trigger: HTMLElement): { top: number; right: number; maxHeight: number } {
+  const box = trigger.getBoundingClientRect();
+  let frame: HTMLElement | null = null;
+  for (
+    let el = trigger.parentElement;
+    el && el !== document.documentElement;
+    el = el.parentElement
+  ) {
+    const css = getComputedStyle(el);
+    const backdrop =
+      css.backdropFilter ||
+      (css as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter;
+    if (
+      (css.transform && css.transform !== "none") ||
+      (css.filter && css.filter !== "none") ||
+      (backdrop && backdrop !== "none") ||
+      (css.perspective && css.perspective !== "none") ||
+      /transform|filter|perspective/.test(css.willChange) ||
+      /paint|layout|strict|content/.test(css.contain)
+    ) {
+      frame = el;
+      break;
+    }
+  }
+  let frameTop = 0;
+  let frameRight = document.documentElement.clientWidth;
+  if (frame) {
+    const f = frame.getBoundingClientRect();
+    frameTop = f.top + frame.clientTop;
+    frameRight = f.left + frame.clientLeft + frame.clientWidth;
+  }
+  return {
+    top: box.bottom - frameTop + 4,
+    right: Math.max(8, frameRight - box.right),
+    maxHeight: Math.max(44, window.innerHeight - box.bottom - 12),
+  };
+}
+
+/**
+ * The directory below the desktop rail. Primary jobs stay first; planning
+ * tools and accountant links follow.
+ *
+ * Keyboard: Enter, Space or ArrowDown on the button opens the menu on its
+ * first item; ArrowUp, ArrowDown, Home and End move within it and never reach
+ * the tabs; Escape closes it and returns focus to the button; picking a
+ * view moves focus to that view's tab.
+ */
+export function MoreTabsMenu({
+  sections = [],
+  tabs,
+  activeId,
+  label,
+  onPick,
+  links = [],
+  onOpenLink,
+}: {
+  /** The main sections, listed first. */
+  sections?: readonly ShellTab[];
+  tabs: readonly ShellTab[];
+  activeId: TabId;
+  label: (tab: ShellTab) => string;
+  onPick: (id: TabId) => void;
+  links?: readonly ShellRouteLink[];
+  onOpenLink?: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const menuTabs = [...sections, ...tabs];
+  const groups = [
+    { label: "Everyday work", tabs: sections, offset: 0 },
+    { label: "Explore and plan", tabs, offset: sections.length },
+  ];
+  // The strip scrolls sideways, which would clip a menu hung below it, so the
+  // menu is fixed-position, under its button. See fixedMenuPlace for why the
+  // numbers are not plain window coordinates.
+  const [place, setPlace] = useState<ReturnType<typeof fixedMenuPlace> | null>(null);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const itemRefs = useRef<(HTMLElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    const placeMenu = () => {
+      if (triggerRef.current) setPlace(fixedMenuPlace(triggerRef.current));
+    };
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    window.addEventListener("scroll", placeMenu, true);
+    return () => {
+      setPlace(null);
+      window.removeEventListener("resize", placeMenu);
+      window.removeEventListener("scroll", placeMenu, true);
+    };
+  }, [open]);
+
+  // The menu renders only once it has a place, so the first item can take
+  // focus only then; later re-placements (scroll, resize) leave focus alone.
+  const focusedOnOpen = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      focusedOnOpen.current = false;
+      return;
+    }
+    if (!place || focusedOnOpen.current) return;
+    focusedOnOpen.current = true;
+    itemRefs.current[0]?.focus({ preventScroll: true });
+  }, [open, place]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function close() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function pick(id: TabId) {
+    setOpen(false);
+    onPick(id);
+    requestAnimationFrame(() =>
+      (document.getElementById(`tab-${id}`) ?? triggerRef.current)?.focus(),
+    );
+  }
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keys pressed inside the menu belong to the menu, not to the tabs beside it.
+    event.stopPropagation();
+    const items = itemRefs.current.filter((el): el is HTMLElement => el !== null);
+    const index = items.findIndex((el) => el === document.activeElement);
+    let next: number | null = null;
+    if (event.key === "ArrowDown") next = (index + 1) % items.length;
+    else if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = items.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    } else if (event.key === "Tab") {
+      setOpen(false);
+      return;
+    }
+    if (next === null) return;
+    event.preventDefault();
+    items[next]?.focus();
+  }
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={menuId}
+        data-sections-menu
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && !open) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-fg transition-colors hover:bg-elevated/60"
+      >
+        All sections
+        <ChevronDown
+          className={cn("size-3.5 transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open && place && (
+        <div
+          id={menuId}
+          role="menu"
+          style={place}
+          aria-label="All sections"
+          onKeyDown={onMenuKeyDown}
+          className="fixed z-30 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1.5 shadow-xl"
+        >
+          {groups
+            .filter((group) => group.tabs.length > 0)
+            .map((group) => (
+              <div key={group.label} role="group" aria-label={group.label}>
+                <p aria-hidden className="px-2.5 pt-2 pb-1 text-xs font-medium text-subtle">
+                  {group.label}
+                </p>
+                {group.tabs.map((t, i) => (
+                  <SectionMenuItem
+                    key={t.id}
+                    tab={t}
+                    label={label(t)}
+                    active={activeId === t.id}
+                    descriptionId={`${menuId}-${t.id}`}
+                    itemRef={(el) => {
+                      itemRefs.current[group.offset + i] = el;
+                    }}
+                    onPick={() => pick(t.id)}
+                  />
+                ))}
+              </div>
+            ))}
+          {links.length > 0 && <div role="separator" className="my-1 border-t border-border" />}
+          {links.length > 0 && (
+            <p role="presentation" className="px-2.5 pt-2 pb-1 text-xs font-medium text-subtle">
+              Accountant workspace
+            </p>
+          )}
+          {links.map((link, i) => (
+            <a
+              key={link.id}
+              ref={(el) => {
+                itemRefs.current[menuTabs.length + i] = el;
+              }}
+              href={link.href}
+              role="menuitem"
+              tabIndex={-1}
+              data-route-link={link.id}
+              onClick={(event) => {
+                if (!onOpenLink || event.metaKey || event.ctrlKey || event.shiftKey) return;
+                event.preventDefault();
+                setOpen(false);
+                onOpenLink(link.id);
+              }}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-muted hover:bg-elevated hover:text-fg focus:bg-elevated"
+            >
+              <ExternalLink className="size-4" aria-hidden />
+              <span className="flex-1">{link.label}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SectionMenuItem({
+  tab,
+  label,
+  active,
+  descriptionId,
+  itemRef,
+  onPick,
+}: {
+  tab: ShellTab;
+  label: string;
+  active: boolean;
+  descriptionId: string;
+  itemRef?: Ref<HTMLButtonElement>;
+  onPick: () => void;
+}) {
+  const Icon = tab.icon;
+  return (
+    <button
+      ref={itemRef}
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      data-tab-id={tab.id}
+      aria-label={label}
+      aria-describedby={descriptionId}
+      aria-current={active ? "page" : undefined}
+      onClick={onPick}
+      className={cn(
+        "flex min-h-11 w-full items-center gap-3 rounded-lg px-2.5 py-2.5 text-left text-sm whitespace-normal hover:bg-elevated focus:bg-elevated",
+        active ? "bg-primary/10 text-fg" : "text-muted hover:text-fg",
+      )}
+    >
+      <Icon className={cn("size-4 shrink-0", active && "text-primary")} aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium text-fg">{label}</span>
+        <span id={descriptionId} className="mt-0.5 block text-xs leading-relaxed text-muted">
+          {tab.description}
+        </span>
+      </span>
+      {active && <Check className="size-4 shrink-0 text-primary" aria-hidden />}
+    </button>
+  );
+}
+
+/**
+ * The header's action row, folded on a phone. `inline` stays in the row at
+ * every width; `leading` and `trailing` render beside it on wider screens
+ * and fold behind one "More" disclosure below the `sm` breakpoint, so a
+ * phone header is two rows instead of four. The disclosure is a plain
+ * disclosure, not a menu: its panel holds live controls, so Tab moves
+ * through them naturally and Escape closes it and returns focus to the
+ * button. The server renders the wide row; a phone folds after hydration.
+ */
+export function HeaderActions({
+  leading = null,
+  inline,
+  trailing = null,
+}: {
+  leading?: ReactNode;
+  inline: ReactNode;
+  trailing?: ReactNode;
+}) {
+  const [wide, setWide] = useState(true);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const sync = () => {
+      setWide(mq.matches);
+      if (mq.matches) setOpen(false);
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const folded = Boolean(leading) || Boolean(trailing);
+  if (wide || !folded) {
+    return (
+      <>
+        {leading}
+        {inline}
+        {trailing}
+      </>
+    );
+  }
+  // The panel hangs from the sticky header's right edge, not from the
+  // button: the button can sit far left in the row (a short label beside
+  // it), and a panel anchored there would run off the left of a phone.
+  return (
+    <>
+      {inline}
+      <div ref={ref} className="static">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-expanded={open}
+          aria-controls="header-more"
+          onClick={() => setOpen((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-lg border border-border bg-elevated/60 px-2.5 py-1.5 text-xs font-medium text-muted hover:text-fg pointer-coarse:min-h-11"
+        >
+          <MoreHorizontal className="size-4" aria-hidden /> More
+        </button>
+        {open && (
+          <div
+            id="header-more"
+            role="group"
+            aria-label="More header actions"
+            className="absolute top-full right-4 z-30 mt-1 flex w-max max-w-[calc(100vw-2rem)] min-w-56 flex-col items-stretch gap-2 rounded-lg border border-border bg-surface p-3 shadow-xl"
+          >
+            {leading}
+            {trailing}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/**
+ * A count pill beside a tab name. Sighted readers see the number; a screen
+ * reader hears what it counts ("3 critical conflicts"), since the tab's name
+ * alone would not say.
+ */
+export function CountBadge({
+  n,
+  tone,
+  text,
+}: {
+  n: number;
+  tone: "warn" | "danger";
+  /** The whole count in words, read instead of the bare number. */
+  text: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-1.5 text-xs",
+        tone === "danger" ? "bg-danger/20 text-danger" : "bg-warn/20 text-warn",
+      )}
+    >
+      <span aria-hidden>{n}</span>
+      <span className="sr-only">{`, ${text}`}</span>
+    </span>
+  );
+}
+
+export function TabLoading() {
+  return (
+    <Card>
+      <CardContent className="p-6 text-sm text-muted">Loading…</CardContent>
+    </Card>
+  );
+}
+
+export function MetricCard({
+  label,
+  value,
+  hint,
+  tone,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone: "danger" | "warn" | "primary";
+  onClick?: () => void;
+}) {
+  return (
+    <Card
+      className={
+        onClick
+          ? "cursor-pointer transition-colors hover:border-border-strong pointer-coarse:min-h-11"
+          : undefined
+      }
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+    >
+      <CardContent className="p-4">
+        <p className="text-xs text-muted">{label}</p>
+        <p
+          className={cn(
+            "mt-2 text-2xl font-semibold tabular tracking-tight",
+            tone === "danger" && "text-danger",
+            tone === "warn" && "text-warn",
+          )}
+        >
+          {value}
+        </p>
+        <p className="mt-1 text-xs text-muted">{hint}</p>
+      </CardContent>
+    </Card>
+  );
+}
