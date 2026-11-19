@@ -52,6 +52,11 @@ def predictions(model: Any, tokenizer: Any, torch: Any, rows: list[Fields]) -> l
     return result
 
 
+def has_4bit_weights(model: Any, linear_4bit: type[Any]) -> bool:
+    return any(isinstance(module, linear_4bit) and getattr(module.weight, "quant_state", None) is not None
+               for module in model.modules())
+
+
 def train(config: Fields, data: Path, output: Path) -> None:
     adapter = string(config.get("adapter"), "adapter")
     if adapter not in ADAPTERS:
@@ -86,11 +91,16 @@ def train(config: Fields, data: Path, output: Path) -> None:
     options: dict[str, Any] = {"trust_remote_code": False, "use_safetensors": True, "local_files_only": True,
                                "dtype": dtype}
     if fast is not None:
+        bnb = import_module("bitsandbytes")
+        quantization = transformers.BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=dtype,
+        )
         model, tokenizer = fast.from_pretrained(
             model_name=str(snapshot), max_seq_length=max_length, load_in_4bit=True, full_finetuning=False,
-            use_exact_model_name=True, device_map={"": 0}, **options,
+            use_exact_model_name=True, device_map={"": 0}, quantization_config=quantization, **options,
         )
-        if not getattr(model, "is_loaded_in_4bit", False):
+        if not has_4bit_weights(model, bnb.nn.Linear4bit):
             raise ValueError("Unsloth did not load the base model in 4-bit mode.")
         fast.for_inference(model)
     else:

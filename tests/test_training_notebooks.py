@@ -1,6 +1,8 @@
 from base64 import b64decode
 from pathlib import Path
+import os
 import subprocess
+import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
@@ -93,6 +95,27 @@ def test_colab_private_clone_uses_ephemeral_auth_and_drive_fallback(tmp_path: Pa
             exec(code, names)
     assert mounted == ["/content/drive"]
     assert names["source"] == Path("/content/drive/MyDrive/Uploaded ControlGuard")
+
+
+@pytest.mark.parametrize("path", ("llm/colab/train_adapters.ipynb", "kaggle/train_adapters.ipynb"))
+def test_training_cell_shows_worker_stderr(path: str, tmp_path: Path,
+                                          capsys: pytest.CaptureFixture[str]) -> None:
+    cell = next(fields(value) for value in notebook_cells(path) if fields(value).get("id") == "training")
+    config = tmp_path / "llm-config"
+    config.mkdir()
+    (config / "kaggle-a1.json").write_text("{}", encoding="utf-8")
+    package = tmp_path / "controlguard" / "llm"
+    package.mkdir(parents=True)
+    (package.parent / "__init__.py").touch()
+    (package / "__init__.py").touch()
+    (package / "train.py").write_text('raise ValueError("visible worker failure")\n', encoding="utf-8")
+    names = {"source": tmp_path, "output": tmp_path / "output", "runtime_root": tmp_path,
+             "adapters": ("a1",), "base": "Qwen3-8B", "steps": 1, "eval_examples": 1,
+             "subprocess": subprocess, "sys": sys, "env": os.environ, "data": tmp_path}
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        exec(compile(code_for(cell), f"{path}:training", "exec"), names)
+    assert error.value.returncode == 1
+    assert "ValueError: visible worker failure" in capsys.readouterr().out
 
 
 def test_kaggle_metadata_targets_private_t4() -> None:

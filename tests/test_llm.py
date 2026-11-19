@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,7 +11,7 @@ from controlguard.llm.dataset import generate
 from controlguard.llm.evaluate import load_rows, measure
 from controlguard.llm.inference import LocalClient, ask, scrub
 from controlguard.llm.model import ModelSpec, REVISIONS, scan_template, verify_tensor
-from controlguard.llm.train import completion_for
+from controlguard.llm.train import completion_for, has_4bit_weights
 
 
 def test_held_out_sets_and_eval_scoring(tmp_path: Path) -> None:
@@ -50,6 +51,17 @@ def test_model_pins_and_header(tmp_path: Path) -> None:
     file.write_bytes(len(bad).to_bytes(8, "little") + bad + b"ABC")
     with pytest.raises(ValueError, match="overlap"):
         verify_tensor(file)
+
+
+def test_4bit_check_requires_materialized_quantized_weights() -> None:
+    class Linear4bit:
+        def __init__(self, quant_state: object) -> None:
+            self.weight = SimpleNamespace(quant_state=quant_state)
+
+    assert has_4bit_weights(SimpleNamespace(modules=lambda: [Linear4bit(object())]), Linear4bit)
+    assert not has_4bit_weights(SimpleNamespace(modules=lambda: [Linear4bit(None)]), Linear4bit)
+    dense = SimpleNamespace(is_loaded_in_4bit=True, modules=lambda: [object()])
+    assert not has_4bit_weights(dense, Linear4bit)
 
 
 def test_fallback_and_redaction(tmp_path: Path) -> None:

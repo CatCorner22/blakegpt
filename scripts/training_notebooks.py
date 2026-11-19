@@ -117,10 +117,17 @@ for family in adapters:
     job_config = runtime_root / f"{family}-resolved.json"
     target = output / base / family
     job_config.write_text(json.dumps(config, allow_nan=False))
-    subprocess.run([
-        sys.executable, "-m", "controlguard.llm.train", str(job_config),
+    command = [
+        sys.executable, "-u", "-m", "controlguard.llm.train", str(job_config),
         "--data", str(data), "--output", str(target),
-    ], cwd=source, env=env, check=True)
+    ]
+    with subprocess.Popen(command, cwd=source, env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, errors="replace") as worker:
+        for line in worker.stdout:
+            print(line, end="", flush=True)
+        return_code = worker.wait()
+        if return_code:
+            raise subprocess.CalledProcessError(return_code, command)
     weights = target / "adapter" / "adapter_model.safetensors"
     if not weights.is_file():
         raise FileNotFoundError(f"No saved safetensors adapter at {weights}.")
