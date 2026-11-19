@@ -28,6 +28,18 @@ After a reboot Precog comes back when that Windows account signs in.
 
 ## Build and migrate
 
+On fresh Ubuntu 24.04 with systemd running, bootstrap installs the packages,
+checks out the chosen ref, builds Precog, and starts it on
+`http://localhost:8080`. Rerunning keeps the existing database and settings.
+See the manual setup below for the individual steps. Bootstrap does not
+create a Cloudflare account or tunnel.
+
+Download `deploy/self-host/bootstrap-wsl.sh` from the public Precog repo
+at the revision you intend to install, review it, and run
+`sudo bash bootstrap-wsl.sh BRANCH_TAG_OR_COMMIT` in Ubuntu.
+
+### Manual setup
+
 Install Node 22 at `/usr/bin/node`, PostgreSQL 16 and its client tools, and
 curl in Ubuntu. Create a non-superuser Postgres login that owns a database
 named `precog`; keep Postgres on loopback. Place the checkout and build output
