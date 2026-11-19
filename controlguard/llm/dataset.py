@@ -8,7 +8,7 @@ from controlguard.inputs import Fields, encode
 from controlguard.ledger import Ledger
 from controlguard.risk import GATES
 
-from .tools import ADAPTERS, SCHEMAS, SYSTEM, tools_for, validate
+from .tools import ADAPTERS, FAMILIES, SCHEMAS, SYSTEM, tools_for, validate
 
 
 @dataclass(frozen=True)
@@ -100,13 +100,24 @@ def record(example: Example, adapter: str) -> Fields:
     ], "expected": {"name": example.name, "arguments": example.arguments}}
 
 
+def with_combined_tools(row: Fields) -> Fields:
+    return {**row, "tools": tools_for(ADAPTERS["combined"])}
+
+
 def generate(output: Path, train_count: int, eval_count: int) -> None:
     output.mkdir(parents=True, exist_ok=True)
-    for adapter in ADAPTERS:
+    for adapter in FAMILIES:
         for split, count in (("train", train_count), ("eval", eval_count)):
             with (output / f"{adapter}-{split}.jsonl").open("w", encoding="utf-8") as stream:
                 for index in range(count):
                     print(encode(record(exercise(adapter, split, index), adapter)), file=stream)
+    for split, count in (("train", train_count), ("eval", eval_count)):
+        pairs = ((family, index) for index in range(count) for family in FAMILIES) if split == "train" else (
+            (family, index) for family in FAMILIES for index in range(count))
+        with (output / f"combined-{split}.jsonl").open("w", encoding="utf-8") as stream:
+            for family, index in pairs:
+                row = record(exercise(family, split, index), family)
+                print(encode(with_combined_tools(row)), file=stream)
 
 
 def main() -> None:

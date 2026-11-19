@@ -76,6 +76,8 @@ The GPU configs target Qwen3-8B and Qwen3-32B. The trainer pins each base revisi
 
 ### Colab Pro and Kaggle
 
+The Colab default is **combined**: one adapter sees both tool families. **Both** still trains two separate adapters. The combined run saves aggregate and per-family held-out scores in `metrics.json`; each run also keeps `training.log` beside its adapter, even when the worker fails. Custom combined datasets need `combined-train.jsonl`, `a1-eval.jsonl`, and `a2-eval.jsonl`.
+
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CatCorner22/controlguard/blob/main/llm/colab/train_adapters.ipynb)
 
 **Colab Pro:** Open [`llm/colab/train_adapters.ipynb`](llm/colab/train_adapters.ipynb) as a notebook. Start with Qwen3-8B on an L4 or A100. For 32B, select an A100 with at least 40 GB. Pick A1, A2 or both in **Training settings**. The notebook uses Unsloth 4-bit QLoRA and trains the adapters in separate processes. It writes safetensors, predictions and metrics to `My Drive/ControlGuard-Adapters/<base>/<adapter>/` by default. Run eight evaluation examples and 40 training steps per adapter to start. GPU availability and Colab compute-unit charges depend on the session.

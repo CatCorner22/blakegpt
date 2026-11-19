@@ -8,9 +8,10 @@ from typing import Any
 
 from controlguard.inputs import Fields, decode, encode, fields, finite, integer, items, string
 
+from .dataset import with_combined_tools
 from .evaluate import load_rows, measure
 from .model import ModelSpec, verify_snapshot
-from .tools import ADAPTERS
+from .tools import ADAPTERS, FAMILIES
 
 
 def prompt_for(tokenizer: Any, row: Fields) -> str:
@@ -57,10 +58,37 @@ def has_4bit_weights(model: Any, linear_4bit: type[Any]) -> bool:
                for module in model.modules())
 
 
+def evaluation_sets(data: Path, adapter: str, limit: int) -> dict[str, list[Fields]]:
+    if adapter != "combined":
+        return {adapter: load_rows(data / f"{adapter}-eval.jsonl")[:limit]}
+    return {family: [with_combined_tools(row) for row in load_rows(data / f"{family}-eval.jsonl")[:limit]]
+            for family in FAMILIES}
+
+
+def evaluate_stage(model: Any, tokenizer: Any, torch: Any, sets: dict[str, list[Fields]],
+                   output: Path, stage: str, metrics: Fields) -> None:
+    per_family: dict[str, Fields] = {}
+    all_rows: list[Fields] = []
+    all_values: list[str] = []
+    for family, rows in sets.items():
+        values = predictions(model, tokenizer, torch, rows)
+        per_family[family] = measure(rows, values)
+        all_rows.extend(rows)
+        all_values.extend(values)
+        summary = measure(all_rows, all_values)
+        if len(sets) > 1:
+            summary["per_family"] = per_family
+        metrics[stage] = summary
+        (output / "metrics.json").write_text(encode(metrics, pretty=True) + "\n", encoding="utf-8")
+        (output / f"{stage}.jsonl").write_text(
+            "".join(encode({"prediction": value}) + "\n" for value in all_values), encoding="utf-8")
+    print(encode({stage: metrics[stage]}), flush=True)
+
+
 def train(config: Fields, data: Path, output: Path) -> None:
     adapter = string(config.get("adapter"), "adapter")
     if adapter not in ADAPTERS:
-        raise ValueError("Use adapter a1 or a2.")
+        raise ValueError("Use adapter a1, a2, or combined.")
     spec = ModelSpec(string(config.get("repo"), "repo"), string(config.get("revision"), "revision"))
     spec.validate()
     mode = string(config.get("mode"), "mode")
@@ -69,6 +97,10 @@ def train(config: Fields, data: Path, output: Path) -> None:
     steps = integer(config.get("steps"), "steps", range(1, 100_001))
     eval_limit = integer(config.get("eval_limit", 4), "eval_limit", range(1, 513))
     max_length = integer(config.get("max_length", 2048), "max_length", range(256, 8193))
+    training = load_rows(data / f"{adapter}-train.jsonl")
+    heldout = evaluation_sets(data, adapter, eval_limit)
+    if not training or not all(heldout.values()):
+        raise ValueError("Generate nonempty training and held-out files.")
     fast = import_module("unsloth").FastLanguageModel if mode == "unsloth-qlora" else None
     hubs = import_module("huggingface_hub")
     torch = import_module("torch")
@@ -115,13 +147,9 @@ def train(config: Fields, data: Path, output: Path) -> None:
             model = peft.prepare_model_for_kbit_training(model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    training = load_rows(data / f"{adapter}-train.jsonl")
-    heldout = load_rows(data / f"{adapter}-eval.jsonl")[:eval_limit]
-    if not training or not heldout:
-        raise ValueError("Generate nonempty training and held-out files.")
     output.mkdir(parents=True, exist_ok=True)
-    before = predictions(model, tokenizer, torch, heldout)
-    print(encode({"before": measure(heldout, before)}), flush=True)
+    metrics: Fields = {}
+    evaluate_stage(model, tokenizer, torch, heldout, output, "before", metrics)
     dataset = datasets.Dataset.from_list([{"prompt": prompt_for(tokenizer, row),
                                            "completion": completion_for(row)} for row in training])
     lora = None
@@ -150,13 +178,7 @@ def train(config: Fields, data: Path, output: Path) -> None:
     tokenizer.save_pretrained(str(output / "adapter"))
     if fast is not None:
         fast.for_inference(trainer.model)
-    after = predictions(trainer.model, tokenizer, torch, heldout)
-    for tag, values in (("before", before), ("after", after)):
-        (output / f"{tag}.jsonl").write_text(
-            "".join(encode({"prediction": value}) + "\n" for value in values), encoding="utf-8")
-    metrics = {"before": measure(heldout, before), "after": measure(heldout, after)}
-    (output / "metrics.json").write_text(encode(metrics, pretty=True) + "\n", encoding="utf-8")
-    print(encode(metrics), flush=True)
+    evaluate_stage(trainer.model, tokenizer, torch, heldout, output, "after", metrics)
 
 
 def main() -> None:

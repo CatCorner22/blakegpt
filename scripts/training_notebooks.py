@@ -61,7 +61,7 @@ PREFLIGHT = """import os
 import subprocess
 import sys
 
-if base not in ("Qwen3-8B", "Qwen3-32B") or adapter not in ("A1", "A2", "both"):
+if base not in ("Qwen3-8B", "Qwen3-32B") or adapter not in ("A1", "A2", "both", "combined"):
     raise ValueError("Choose a listed base and adapter.")
 if not 1 <= steps <= 250 or not 1 <= eval_examples <= 32:
     raise ValueError("Use 1–250 steps and 1–32 evaluation examples.")
@@ -102,18 +102,22 @@ else:
     ], cwd=source, check=True)
 adapters = ("a1", "a2") if adapter == "both" else (adapter.lower(),)
 for family in adapters:
-    for split in ("train", "eval"):
-        if not (data / f"{family}-{split}.jsonl").is_file():
-            raise FileNotFoundError(f"Missing {family}-{split}.jsonl in {data}.")
+    filenames = ("combined-train.jsonl", "a1-eval.jsonl", "a2-eval.jsonl") if family == "combined" else (
+        f"{family}-train.jsonl", f"{family}-eval.jsonl")
+    for filename in filenames:
+        if not (data / filename).is_file():
+            raise FileNotFoundError(f"Missing {filename} in {data}.")
 """
 
 TRAIN = """import json
 
 output.mkdir(parents=True, exist_ok=True)
 for family in adapters:
-    config_path = f"kaggle-{family}" if base == "Qwen3-8B" else f"qwen32b-{family}"
+    config_path = f"qwen32b-{family}" if base == "Qwen3-32B" else (
+        "qwen8b-combined" if family == "combined" else f"kaggle-{family}")
     config = json.loads((source / "llm-config" / f"{config_path}.json").read_text())
-    config.update(mode="unsloth-qlora", steps=steps, eval_limit=eval_examples, max_length=1024)
+    config.update(mode="unsloth-qlora", steps=steps, eval_limit=eval_examples,
+                  max_length=2048 if family == "combined" else 1024)
     job_config = runtime_root / f"{family}-resolved.json"
     target = output / base / family
     job_config.write_text(json.dumps(config, allow_nan=False))
@@ -121,18 +125,28 @@ for family in adapters:
         sys.executable, "-u", "-m", "controlguard.llm.train", str(job_config),
         "--data", str(data), "--output", str(target),
     ]
-    with subprocess.Popen(command, cwd=source, env=env, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True, errors="replace") as worker:
+    target.mkdir(parents=True, exist_ok=True)
+    log_path = target / "training.log"
+    metrics_path = target / "metrics.json"
+    metrics_path.unlink(missing_ok=True)
+    print(f"Training log: {log_path}", flush=True)
+    with log_path.open("w", encoding="utf-8", buffering=1) as log, subprocess.Popen(
+        command, cwd=source, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace",
+    ) as worker:
         for line in worker.stdout:
+            log.write(line)
+            log.flush()
             print(line, end="", flush=True)
         return_code = worker.wait()
-        if return_code:
-            raise subprocess.CalledProcessError(return_code, command)
+    if metrics_path.is_file():
+        print(metrics_path.read_text())
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, command)
     weights = target / "adapter" / "adapter_model.safetensors"
     if not weights.is_file():
         raise FileNotFoundError(f"No saved safetensors adapter at {weights}.")
     print(f"{family.upper()} weights: {weights}")
-    print((target / "metrics.json").read_text())
 """
 
 
@@ -158,7 +172,7 @@ def notebook(platform: str, content: str) -> Fields:
     if colab:
         params = '''# @title Training settings
 base = "Qwen3-8B" # @param ["Qwen3-8B", "Qwen3-32B"]
-adapter = "both" # @param ["A1", "A2", "both"]
+adapter = "combined" # @param ["A1", "A2", "both", "combined"]
 steps = 40 # @param {type:"integer"}
 eval_examples = 8 # @param {type:"integer"}
 dataset_folder = "" # @param {type:"string"}

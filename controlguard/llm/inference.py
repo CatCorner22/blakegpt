@@ -97,7 +97,7 @@ def fallback(prompt: str, adapter: str, ledger: Ledger) -> Fields:
     name, _, raw = prompt.strip().partition(" ")
     if name in ADAPTERS[adapter] and raw.lstrip().startswith("{"):
         return response("rules", "complete", [execute(name, decode(raw), ledger)])
-    if adapter == "a1":
+    if "leave" in ADAPTERS[adapter]:
         match = re.fullmatch(r"(?:convert(?: leave)?|check policy)\s*:\s*(.+)", prompt, re.I | re.S)
         if match:
             name = "leave" if prompt.lower().startswith("convert") else "policy"
@@ -107,7 +107,7 @@ def fallback(prompt: str, adapter: str, ledger: Ledger) -> Fields:
 
 def ask(prompt: str, adapter: str, ledger: Ledger, client: LocalClient | None = None) -> Fields:
     if adapter not in ADAPTERS:
-        raise ValueError("Choose policy and leave (A1) or controls and pricing (A2).")
+        raise ValueError("Choose policy and leave (A1), controls and pricing (A2), or combined.")
     if not 0 < len(prompt.strip()) <= 12_000:
         raise ValueError("Enter a request under 12,000 characters.")
     safe_prompt = scrub(prompt.strip())

@@ -44,6 +44,7 @@ def test_notebook_cpu_preflight_and_code_syntax(path: str, tmp_path: Path) -> No
             exec(compiled, names)
             if identifier == "settings" and path.startswith("llm/colab/"):
                 assert names["project_source"] == "GitHub"
+                assert names["adapter"] == "combined"
                 names["project_source"] = "Embedded"
         elif identifier == "gpu-preflight":
             with patch("subprocess.run", side_effect=FileNotFoundError("nvidia-smi")) as run:
@@ -119,6 +120,8 @@ def test_training_cell_shows_worker_stderr(path: str, tmp_path: Path,
         exec(compile(code_for(cell), f"{path}:training", "exec"), names)
     assert error.value.returncode == 1
     assert "ValueError: visible worker failure" in capsys.readouterr().out
+    assert "ValueError: visible worker failure" in (
+        tmp_path / "output/Qwen3-8B/a1/training.log").read_text()
 
 
 def test_kaggle_metadata_targets_private_t4() -> None:

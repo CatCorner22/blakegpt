@@ -45,7 +45,8 @@ SCHEMAS = {
                    shape({"invoice_unit_price": NUM, "po_unit_price": NUM},
                          "invoice_unit_price", "po_unit_price")}}, "tolerance", "invoices"),
 }
-ADAPTERS = {"a1": ("policy", "leave"), "a2": ("sod", "triage", "price", "skim")}
+FAMILIES = {"a1": ("policy", "leave"), "a2": ("sod", "triage", "price", "skim")}
+ADAPTERS = {**FAMILIES, "combined": FAMILIES["a1"] + FAMILIES["a2"]}
 FINAL = shape({"status": choice("complete", "needs_input")}, "status")
 
 

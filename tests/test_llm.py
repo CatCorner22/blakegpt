@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -11,7 +12,7 @@ from controlguard.llm.dataset import generate
 from controlguard.llm.evaluate import load_rows, measure
 from controlguard.llm.inference import LocalClient, ask, scrub
 from controlguard.llm.model import ModelSpec, REVISIONS, scan_template, verify_tensor
-from controlguard.llm.train import completion_for, has_4bit_weights
+from controlguard.llm.train import completion_for, evaluate_stage, evaluation_sets, has_4bit_weights
 
 
 def test_held_out_sets_and_eval_scoring(tmp_path: Path) -> None:
@@ -30,6 +31,28 @@ def test_held_out_sets_and_eval_scoring(tmp_path: Path) -> None:
         perfect[0] = "not JSON"
         perfect[1] = '{"name":"leave","arguments":{"unknown":true}}'
         assert measure(held_out, perfect)["exact_tool_call"] == 6
+
+
+def test_combined_union_and_partial_family_metrics(tmp_path: Path) -> None:
+    generate(tmp_path, 8, 8)
+    rows = load_rows(tmp_path / "combined-train.jsonl")
+    for index, family in enumerate(("a1", "a2")):
+        assert [row["expected"] for row in rows[index::2]] == [
+            row["expected"] for row in load_rows(tmp_path / f"{family}-train.jsonl")]
+    sets = evaluation_sets(tmp_path, "combined", 4)
+    assert all(len(items(row["tools"], "tools")) == 6 for row in rows + sets["a1"] + sets["a2"])
+    metrics: Fields = {}
+    perfect = [[completion_for(row) for row in family_rows] for family_rows in sets.values()]
+    with patch("controlguard.llm.train.predictions", side_effect=perfect):
+        evaluate_stage(None, None, None, sets, tmp_path, "before", metrics)
+    with patch("controlguard.llm.train.predictions", side_effect=[perfect[0], RuntimeError("failed")]):
+        with pytest.raises(RuntimeError, match="failed"):
+            evaluate_stage(None, None, None, sets, tmp_path, "after", metrics)
+    saved = decode((tmp_path / "metrics.json").read_text())
+    before, after = fields(saved["before"]), fields(saved["after"])
+    assert before["exact_tool_call"] == 8
+    assert set(fields(before["per_family"])) == {"a1", "a2"}
+    assert set(fields(after["per_family"])) == {"a1"}
 
 
 def test_model_pins_and_header(tmp_path: Path) -> None:
