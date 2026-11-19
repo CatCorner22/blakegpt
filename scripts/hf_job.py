@@ -13,7 +13,7 @@ WORKER = '''# /// script
 # requires-python = ">=3.11,<3.13"
 # dependencies = [
 #   "torch==2.7.1", "transformers==4.56.2", "trl==0.23.1",
-#   "peft==0.17.1", "datasets==4.0.0", "bitsandbytes==0.47.0",
+#   "peft==0.17.1", "datasets==4.0.0", "bitsandbytes==0.50.2",
 # ]
 # ///
 from base64 import b64decode

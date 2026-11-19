@@ -87,7 +87,7 @@ print(f"Using one {selected[1]} with {selected[2]} MiB.")
 
 INSTALL = """packages = [
     "unsloth==2026.11.6", "unsloth_zoo==2026.11.6", "transformers==4.56.2",
-    "trl==0.23.1", "peft==0.18.0", "datasets==4.3.0", "bitsandbytes==0.47.0",
+    "trl==0.23.1", "peft==0.18.0", "datasets==4.3.0", "bitsandbytes==0.50.2",
 ]
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", *packages], check=True)
 """

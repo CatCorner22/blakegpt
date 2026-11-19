@@ -36,7 +36,10 @@ def test_notebook_cpu_preflight_and_code_syntax(path: str, tmp_path: Path) -> No
             continue
         identifier = string(cell["id"], "cell id")
         found.add(identifier)
-        compiled = compile(code_for(cell), f"{path}:{identifier}", "exec")
+        cell_code = code_for(cell)
+        compiled = compile(cell_code, f"{path}:{identifier}", "exec")
+        if identifier == "dependencies":
+            assert '"bitsandbytes==0.50.2"' in cell_code
         if identifier in ("settings", "source"):
             exec(compiled, names)
             if identifier == "settings" and path.startswith("llm/colab/"):
