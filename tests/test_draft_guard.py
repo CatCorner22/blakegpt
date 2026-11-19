@@ -51,6 +51,20 @@ def test_contract_fixes_will_for_an_explicitly_defined_party() -> None:
     assert result.text.startswith("Vendor shall provide written notice.")
 
 
+def test_contract_modal_fixes_only_known_parties_and_not_before_be() -> None:
+    notice = "The Notice must be in writing to take effect."
+    insured = "The Vendor must be insured."
+
+    notice_result = guard(notice, "contract")
+    insured_result = guard(insured, "contract")
+
+    assert notice_result.text == notice
+    assert notice_result.fixed == []
+    assert insured_result.text.startswith(insured)
+    assert "shall be insured" not in insured_result.text
+    assert "must -> shall" not in insured_result.fixed
+
+
 def test_guard_does_not_change_quoted_lines_or_backtick_text() -> None:
     quoted = "> within thirty (30) days"
     quoted_result = guard(quoted, "contract")

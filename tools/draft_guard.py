@@ -28,9 +28,37 @@ _NUMBER_WORD_PHRASE_DOUBLET = re.compile(
     r"\s+\(\s*\d+\s*\)",
     re.IGNORECASE,
 )
-_THE_PARTY = re.compile(r"\bThe\s+([A-Z][A-Za-z'’&-]*)\b")
+_STANDARD_PARTIES = (
+    "Business Associate",
+    "Covered Entity",
+    "Vendor",
+    "Practice",
+    "Company",
+    "Provider",
+    "Contractor",
+    "Customer",
+    "Client",
+    "Dentist",
+    "Associate",
+    "Employer",
+    "Employee",
+    "Landlord",
+    "Tenant",
+    "Licensor",
+    "Licensee",
+    "Supplier",
+    "Buyer",
+    "Seller",
+    "Consultant",
+    "Owner",
+)
+_STANDARD_PARTY_PATTERN = "|".join(
+    re.escape(party) for party in sorted(_STANDARD_PARTIES, key=len, reverse=True)
+)
+_THE_PARTY = re.compile(rf"\bThe\s+({_STANDARD_PARTY_PATTERN})\b")
 _THE_PARTY_MODAL = re.compile(
-    r"\bThe\s+[A-Z][A-Za-z'’&-]*\s+(?P<verb>(?i:must|will))\b"
+    rf"\bThe\s+{_STANDARD_PARTY_PATTERN}\s+"
+    r"(?P<verb>(?i:must|will))\b(?!\s+(?i:be)\b)"
 )
 
 
@@ -172,7 +200,8 @@ def guard(
                 modal_spans.add(match.span("verb"))
         for party in party_names:
             pattern = re.compile(
-                rf"\b{re.escape(party)}\s+(?P<verb>(?i:must|will))\b"
+                rf"\b{re.escape(party)}\s+"
+                r"(?P<verb>(?i:must|will))\b(?!\s+(?i:be)\b)"
             )
             for match in pattern.finditer(reply):
                 if not _overlaps(match.start(), match.end(), protected_ranges):
