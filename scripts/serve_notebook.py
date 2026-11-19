@@ -36,11 +36,14 @@ max_rank = next(limit for limit in (1, 8, 16, 32, 64, 128, 256, 320, 512) if lim
 INSTALL = '''# @title Install vLLM in an isolated environment
 runtime = Path("/content/controlguard-serve")
 venv = runtime / "venv"
-subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "uv"], check=True)
+uv = [sys.executable, "-m", "uv"]
+subprocess.run(uv + ["venv", "--seed", "--python", sys.executable, str(venv)], check=True)
 python = str(venv / "bin/python")
 wheel = ("https://wheels.vllm.ai/62d4bc3c7e33b1b6c906e233e6af2d3506c482ca/"
          "vllm-0.34.0-cp38-abi3-manylinux_2_28_x86_64.whl")
-subprocess.run([python, "-m", "pip", "install", "--no-cache-dir",
+subprocess.run(uv + ["pip", "install", "--python", python, "--index-strategy",
+                "unsafe-best-match", "--no-cache",
                 "--extra-index-url", "https://download.pytorch.org/whl/cu130",
                 "torch==2.14.0+cu130", wheel], check=True)
 subprocess.run([python, "-c", "import torch, vllm; "

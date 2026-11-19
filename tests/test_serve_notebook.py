@@ -1,12 +1,13 @@
 from io import BytesIO
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.request import Request
 
 import pytest
 
 from controlguard.inputs import encode, fields, items, string
-from scripts.serve_notebook import SMOKE, notebook
+from scripts.serve_notebook import INSTALL, SMOKE, notebook
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,6 +22,32 @@ def test_serve_notebook_matches_generator_and_has_valid_python() -> None:
             lines = items(cell["source"], "source")
             assert all(isinstance(line, str) for line in lines)
             compile("".join(map(str, lines)), string(cell["id"], "id"), "exec")
+
+
+def test_install_uses_uv_without_ensurepip() -> None:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], *, check: bool) -> None:
+        assert check
+        commands.append(command)
+
+    sys_python = "/usr/bin/python3.13"
+    venv = "/content/controlguard-serve/venv"
+    python = f"{venv}/bin/python"
+    exec(INSTALL, {"Path": Path, "sys": SimpleNamespace(executable=sys_python),
+                   "subprocess": SimpleNamespace(run=run)})
+
+    uv = [sys_python, "-m", "uv"]
+    assert len(commands) == 4
+    assert commands[0] == [sys_python, "-m", "pip", "install", "uv"]
+    assert commands[1] == uv + ["venv", "--seed", "--python", sys_python, venv]
+    assert commands[2][:-1] == uv + [
+        "pip", "install", "--python", python, "--index-strategy", "unsafe-best-match",
+        "--no-cache", "--extra-index-url", "https://download.pytorch.org/whl/cu130",
+        "torch==2.14.0+cu130",
+    ]
+    assert commands[2][-1].endswith("vllm-0.34.0-cp38-abi3-manylinux_2_28_x86_64.whl")
+    assert commands[3][:2] == [python, "-c"]
 
 
 @pytest.mark.parametrize("structured", [True, False])
